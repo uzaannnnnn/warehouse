@@ -28,28 +28,49 @@ export default function EditProductModal({
   const [categories, setCategories] = useState(categoryList || []);
 
   useEffect(() => {
-    if (!isOpen) return;
-    setKode(product?.kode || product?.kodeProduk || "");
-    setName(product?.name || product?.nama || "");
-    const catValue =
-      typeof product?.category === "object"
-        ? product.category
-        : (categoryList || []).find((c) => c._id === product?.category) ||
-          null;
-    setCategory(catValue);
-    const rawBeli =
-      product?.hargaBeli ?? product?.harga_pembelian ?? "";
-    const rawJual =
-      product?.hargaJual ?? product?.harga_jual ?? "";
+    if (!isOpen) return undefined;
+    const timer =
+      typeof window === "undefined"
+        ? null
+        : window.setTimeout(() => {
+            setKode(product?.kode || product?.kodeProduk || product?.code || "");
+            setName(product?.name || product?.nama || "");
+            const fallbackCategory =
+              typeof product?.category === "string" && product?.category.length
+                ? { _id: product.category, name: product.category }
+                : null;
+            const catValue =
+              typeof product?.category === "object"
+                ? product.category
+                : (categoryList || []).find((c) => c._id === product?.category) ||
+                  fallbackCategory;
+            setCategory(catValue);
+            const rawBeli =
+              product?.hargaBeli ??
+              product?.harga_pembelian ??
+              product?.purchasePrice ??
+              "";
+            const rawJual =
+              product?.hargaJual ??
+              product?.harga_jual ??
+              product?.sellingPrice ??
+              "";
 
-    setHargaBeli(formatRupiahInput(rawBeli));
-    setHargaJual(formatRupiahInput(rawJual));
-    setCategories(categoryList || []);
+            setHargaBeli(formatRupiahInput(rawBeli));
+            setHargaJual(formatRupiahInput(rawJual));
+            setCategories(categoryList || []);
+          }, 0);
+
+    return () => {
+      if (timer) {
+        window.clearTimeout(timer);
+      }
+    };
   }, [isOpen, product, categoryList]);
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     const payload = {
       ...(product || {}),
@@ -59,8 +80,10 @@ export default function EditProductModal({
       hargaBeli: parseRupiahToNumber(hargaBeli),
       hargaJual: parseRupiahToNumber(hargaJual),
     };
-    onSave(payload);
-    onClose();
+    const success = await onSave(payload);
+    if (success !== false) {
+      onClose();
+    }
   };
 
   return (

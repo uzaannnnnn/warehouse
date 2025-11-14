@@ -1,10 +1,20 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Combobox,
   ComboboxInput,
   ComboboxOption,
   ComboboxOptions,
 } from "@headlessui/react";
+
+const normalizeOption = (item) => {
+  if (!item) return null;
+  if (typeof item === "string") {
+    return { _id: item, name: item };
+  }
+  if (item._id) return item;
+  if (item.name) return { ...item, _id: item.name };
+  return null;
+};
 
 export default function ComboBoxWithCreate({
   label,
@@ -17,10 +27,15 @@ export default function ComboBoxWithCreate({
   const [query, setQuery] = useState("");
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
+  const normalizedItems = useMemo(
+    () => (items || []).map((item) => normalizeOption(item)).filter(Boolean),
+    [items],
+  );
+
   const filtered =
     query === ""
-      ? items
-      : items.filter((item) =>
+      ? normalizedItems
+      : normalizedItems.filter((item) =>
           item.name.toLowerCase().includes(query.toLowerCase()),
         );
 
@@ -33,10 +48,15 @@ export default function ComboBoxWithCreate({
       )}
 
       <Combobox
-        value={value}
+        value={normalizeOption(value)}
         onChange={(val) => {
           if (val?.__isNew) {
-            const newItem = { ...val, _id: `temp-${Date.now()}` };
+            const trimmed = val.name.trim();
+            if (!trimmed) {
+              setIsDropdownOpen(false);
+              return;
+            }
+            const newItem = { _id: trimmed, name: trimmed };
             onAddNew?.(newItem);
             onChange(newItem);
           } else {
@@ -57,7 +77,9 @@ export default function ComboBoxWithCreate({
               setQuery(event.target.value);
               setIsDropdownOpen(true);
             }}
-            displayValue={(item) => item?.name || ""}
+            displayValue={(item) =>
+              typeof item === "string" ? item : item?.name || ""
+            }
             placeholder={placeholder}
           />
 
@@ -82,8 +104,8 @@ export default function ComboBoxWithCreate({
             ))}
 
             {query !== "" &&
-              !items.some(
-                (item) => item.name.toLowerCase() === query.toLowerCase(),
+              !normalizedItems.some(
+                (item) => item.name.toLowerCase() === query.toLowerCase().trim(),
               ) && (
                 <ComboboxOption
                   value={{ __isNew: true, name: query.trim() }}

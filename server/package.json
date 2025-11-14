@@ -1,0 +1,44 @@
+{
+  "name": "server",
+  "version": "1.0.0",
+  "description": "Warehouse backend service",
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "cross-env NODE_ENV=development nodemon src/server.js",
+    "start": "node src/server.js",
+    "seed": "node src/scripts/create-admin.js",
+    "seed:users": "node src/scripts/seed-users.js",
+    "seed:manager": "node src/scripts/seed-users.js --roles=manager",
+    "seed:products": "node src/scripts/seed-products.js",
+    "seed:invoices": "node src/scripts/seed-invoices.js",
+    "seed:all": "node src/scripts/seed-users.js && node src/scripts/seed-products.js && node src/scripts/seed-invoices.js",
+    "test": "echo \"No tests configured\""
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "csv-parse": "^6.1.0",
+    "dotenv": "^17.2.3",
+    "express": "^4.21.2",
+    "express-async-errors": "^3.1.1",
+    "express-rate-limit": "^8.2.1",
+    "helmet": "^8.1.0",
+    "http-errors": "^2.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.19.3",
+    "nanoid": "^5.1.6",
+    "node-fetch": "^2.7.0",
+    "pino": "^10.1.0",
+    "pino-http": "^11.0.0",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "cross-env": "^10.1.0",
+    "nodemon": "^3.1.11",
+    "pino-pretty": "^13.1.2"
+  }
+}

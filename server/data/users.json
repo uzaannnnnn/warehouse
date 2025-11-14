@@ -1,0 +1,8 @@
+[
+  {
+    "name": "Warehouse Manager",
+    "email": "admin@manual.com",
+    "password": "admin123",
+    "role": "manager"
+  }
+]

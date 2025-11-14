@@ -1,0 +1,31 @@
+[
+  {
+    "invoiceNumber": "INV-IN-001",
+    "type": "in",
+    "date": "2025-01-10T02:00:00.000Z",
+    "items": [
+      { "productCode": "CH-K16-M1", "quantity": 20 },
+      { "productCode": "CH-KVY-M1", "quantity": 15 },
+      { "productCode": "CH-KVB-M1", "quantity": 10 }
+    ]
+  },
+  {
+    "invoiceNumber": "INV-OUT-002",
+    "type": "out",
+    "date": "2025-01-11T05:30:00.000Z",
+    "items": [
+      { "productCode": "CH-K16-M2", "quantity": 4 },
+      { "productCode": "CH-K16-M1", "quantity": 6 }
+    ]
+  },
+  {
+    "invoiceNumber": "INV-IN-003",
+    "type": "in",
+    "date": "2025-01-12T01:15:00.000Z",
+    "items": [
+      { "productCode": "CH-KVB-M1", "quantity": 30 },
+      { "productCode": "CH-K16-M1", "quantity": 24 },
+      { "productCode": "CH-KVY-M1", "quantity": 18 }
+    ]
+  }
+]

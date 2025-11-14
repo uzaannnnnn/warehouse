@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   FiBox,
   FiEdit2,
@@ -13,67 +13,18 @@ import EditProductModal from "../components/EditProductModal";
 import Barcode from "../../../components/common/Barcode";
 import DeleteConfirmModal from "../../../components/common/DeleteConfirmModal";
 import {
-  fetchBrands,
   fetchCategories,
-  fetchKodeMotors,
-  fetchProductById,
   fetchProductsPaged,
-  fetchVariants,
   deleteProductById,
   upsertProduct,
+  formatRupiah,
 } from "../api/mockData";
+import { createInvoiceRecord } from "../api/invoices";
 import { playSuccessSound } from "../../../utils/sound";
-
-const SAMPLE_ROWS = [
-  {
-    kode: "KVB-CH",
-    nama: "MANGKOK GANDA KVB",
-    kategori: "1.1 CH-MANGKOK GANDA (MENTAH)",
-    jumlah: "565",
-    hargaBeli: "56.500",
-    hargaJual: "-",
-  },
-  {
-    kode: "K16-CH",
-    nama: "MANGKOK GANDA K16",
-    kategori: "1.1 CH-MANGKOK GANDA (MENTAH)",
-    jumlah: "15",
-    hargaBeli: "52.500",
-    hargaJual: "-",
-  },
-  {
-    kode: "KVY-CH",
-    nama: "MANGKOK GANDA KVY",
-    kategori: "1.1 CH-MANGKOK GANDA (MENTAH)",
-    jumlah: "295",
-    hargaBeli: "52.500",
-    hargaJual: "-",
-  },
-  {
-    kode: "B74-CH",
-    nama: "MANGKOK GANDA B74",
-    kategori: "1.1 CH-MANGKOK GANDA (MENTAH)",
-    jumlah: "40",
-    hargaBeli: "216.000",
-    hargaJual: "-",
-  },
-  {
-    kode: "2PH-CH",
-    nama: "MANGKOK GANDA 2PH",
-    kategori: "1.1 CH-MANGKOK GANDA (MENTAH)",
-    jumlah: "209",
-    hargaBeli: "100.000",
-    hargaJual: "-",
-  },
-];
 
 export default function ProductsPage() {
   const [categories, setCategories] = useState([]);
-  const [brands, setBrands] = useState([]);
-  const [kodeMotors, setKodeMotors] = useState([]);
-  const [variants, setVariants] = useState([]);
 
-  const [detailProduct, setDetailProduct] = useState(null);
   const [editProduct, setEditProduct] = useState(null);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -82,31 +33,21 @@ export default function ProductsPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
+  const limit = 10;
   const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
-  const [rows, setRows] = useState(SAMPLE_ROWS);
   const [printRow, setPrintRow] = useState(null);
   const [printQty, setPrintQty] = useState("1");
-  const [editRow, setEditRow] = useState(null);
-  const [deleteIndex, setDeleteIndex] = useState(null);
   const [isStockOpen, setIsStockOpen] = useState(false);
   const [isStockOutOpen, setIsStockOutOpen] = useState(false);
+  const [productToDelete, setProductToDelete] = useState(null);
 
   const reloadLookups = async () => {
     try {
-      const [catRes, brandRes, kmRes, varRes] = await Promise.all([
-        fetchCategories(),
-        fetchBrands(),
-        fetchKodeMotors(),
-        fetchVariants(),
-      ]);
+      const catRes = await fetchCategories();
       setCategories(catRes);
-      setBrands(brandRes);
-      setKodeMotors(kmRes);
-      setVariants(varRes);
     } catch (err) {
-      console.error("❌ Error reload lookups:", err.message);
+      console.error("Gagal memuat data kategori:", err.message);
     }
   };
 
@@ -180,30 +121,19 @@ export default function ProductsPage() {
   };
 
   const handleDeleteProduct = async (product) => {
+    if (!product?._id) return;
     try {
       await deleteProductById(product._id);
-      toast.success(`Produk "${product.name}" berhasil dihapus 🗑️`);
-      if (allProducts.length === 1 && page > 1) {
+      toast.success(`Produk "${product.name || product.kode}" berhasil dihapus`);
+      playSuccessSound();
+      if (totalItems === 1 && page > 1) {
         setPage((p) => p - 1);
       } else {
         await reloadPage();
       }
     } catch (err) {
-      console.error("❌ Gagal hapus product:", err.message);
-      toast.error("Gagal menghapus produk ❌");
-    }
-  };
-
-  const handleRefreshSingleProduct = async (productId) => {
-    try {
-      const full = await fetchProductById(productId);
-      setAllProducts((prev) =>
-        prev.map((p) => (p._id === productId ? full : p))
-      );
-      setDetailProduct(full);
-      if (editProduct?._id === productId) setEditProduct(full);
-    } catch (err) {
-      console.error("❌ Gagal reload product:", err.message);
+      console.error("Gagal hapus product:", err.message);
+      toast.error(err?.message || "Gagal menghapus produk");
     }
   };
 
@@ -214,63 +144,77 @@ export default function ProductsPage() {
 
   const hasAnyProduct = totalItems > 0;
 
-  const handleApplyStock = ({ invoice, items }) => {
+  const tableRows = useMemo(
+    () =>
+      allProducts.map((product) => ({
+        kode: product.code,
+        nama: product.name,
+        kategori: product.category || "-",
+        jumlah: typeof product.stock === "number" ? product.stock : 0,
+        hargaBeli: typeof product.purchasePrice === "number" ? product.purchasePrice : null,
+        hargaJual: typeof product.sellingPrice === "number" ? product.sellingPrice : null,
+        product,
+      })),
+    [allProducts],
+  );
+
+  const formatNumber = (value) =>
+    new Intl.NumberFormat("id-ID").format(
+      typeof value === "number" ? value : Number(value) || 0,
+    );
+
+  const handleApplyStock = async ({ invoice, items }) => {
     if (!items.length) {
       toast.info("Tidak ada item stok yang ditambahkan");
-      return;
+      return false;
     }
 
-    setRows((prev) => {
-      const updated = [...prev];
-      items.forEach(({ kode, qty }) => {
-        const idx = updated.findIndex(
-          (r) => r.kode.toUpperCase() === String(kode).toUpperCase()
-        );
-        if (idx === -1) return;
-        const base =
-          Number(String(updated[idx].jumlah).replace(/[^\d]/g, "")) || 0;
-        updated[idx] = {
-          ...updated[idx],
-          jumlah: (base + qty).toLocaleString("id-ID"),
-        };
+    try {
+      await createInvoiceRecord({
+        invoiceNumber: invoice?.trim(),
+        type: "in",
+        items: items.map((item) => ({
+          productCode: item.kode,
+          quantity: item.qty,
+        })),
       });
-      return updated;
-    });
-
-    toast.success(
-      `Stok masuk berhasil disimpan${invoice ? ` (Invoice ${invoice})` : ""}`
-    );
-    playSuccessSound();
+      const suffix = invoice ? ` (Invoice ${invoice})` : "";
+      toast.success(`Stok masuk berhasil disimpan${suffix}`);
+      playSuccessSound();
+      await reloadPage();
+      return true;
+    } catch (err) {
+      console.error("Gagal menyimpan stok masuk:", err.message);
+      toast.error(err?.message || "Gagal menyimpan stok masuk");
+      return false;
+    }
   };
 
-  const handleApplyStockOut = ({ invoice, items }) => {
+  const handleApplyStockOut = async ({ invoice, items }) => {
     if (!items.length) {
       toast.info("Tidak ada item stok yang dikurangi");
-      return;
+      return false;
     }
 
-    setRows((prev) => {
-      const updated = [...prev];
-      items.forEach(({ kode, qty }) => {
-        const idx = updated.findIndex(
-          (r) => r.kode.toUpperCase() === String(kode).toUpperCase(),
-        );
-        if (idx === -1) return;
-        const base =
-          Number(String(updated[idx].jumlah).replace(/[^\d]/g, "")) || 0;
-        const nextVal = Math.max(0, base - qty);
-        updated[idx] = {
-          ...updated[idx],
-          jumlah: nextVal.toLocaleString("id-ID"),
-        };
+    try {
+      await createInvoiceRecord({
+        invoiceNumber: invoice?.trim(),
+        type: "out",
+        items: items.map((item) => ({
+          productCode: item.kode,
+          quantity: item.qty,
+        })),
       });
-      return updated;
-    });
-
-    toast.success(
-      `Stok keluar berhasil disimpan${invoice ? ` (Invoice ${invoice})` : ""}`,
-    );
-    playSuccessSound();
+      const suffix = invoice ? ` (Invoice ${invoice})` : "";
+      toast.success(`Stok keluar berhasil disimpan${suffix}`);
+      playSuccessSound();
+      await reloadPage();
+      return true;
+    } catch (err) {
+      console.error("Gagal menyimpan stok keluar:", err.message);
+      toast.error(err?.message || "Gagal menyimpan stok keluar");
+      return false;
+    }
   };
 
   return (
@@ -380,10 +324,13 @@ export default function ProductsPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((row, index) => (
-                <tr key={row.kode} className="border-t hover:bg-gray-50">
+              {tableRows.map((row, index) => (
+                <tr
+                  key={row.product?._id || row.kode || index}
+                  className="border-t hover:bg-gray-50"
+                >
                   <td className="p-3 text-center text-xs font-medium text-gray-600">
-                    {index + 1}
+                    {(page - 1) * limit + index + 1}
                   </td>
                   <td className="p-3 font-mono text-sm text-gray-800">
                     {row.kode}
@@ -406,19 +353,27 @@ export default function ProductsPage() {
                     </div>
                   </td>
                   <td className="p-3 font-medium text-gray-900">{row.nama}</td>
-                  <td className="p-3 text-gray-700">{row.kategori}</td>
-                  <td className="p-3 text-right text-gray-800">{row.jumlah}</td>
-                  <td className="p-3 text-right text-gray-800">
-                    {row.hargaBeli}
+                  <td className="p-3 text-gray-700">
+                    {row.kategori || "-"}
                   </td>
                   <td className="p-3 text-right text-gray-800">
-                    {row.hargaJual}
+                    {formatNumber(row.jumlah)}
+                  </td>
+                  <td className="p-3 text-right text-gray-800">
+                    {row.hargaBeli ? formatRupiah(row.hargaBeli) : "-"}
+                  </td>
+                  <td className="p-3 text-right text-gray-800">
+                    {row.hargaJual ? formatRupiah(row.hargaJual) : "-"}
                   </td>
                   <td className="p-3 text-center">
                     <div className="inline-flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => setEditRow({ index, row })}
+                        onClick={() => {
+                          if (!row.product) return;
+                          setEditProduct(row.product);
+                          setIsEditOpen(true);
+                        }}
                         className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500 text-white hover:bg-emerald-600"
                         title="Edit data"
                       >
@@ -426,7 +381,7 @@ export default function ProductsPage() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => setDeleteIndex(index)}
+                        onClick={() => setProductToDelete(row.product)}
                         className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-red-500 text-white hover:bg-red-600"
                         title="Hapus data"
                       >
@@ -444,7 +399,7 @@ export default function ProductsPage() {
       {!loading && totalPages > 1 && (
         <div className="mt-6 flex flex-col items-center justify-between gap-3 md:flex-row">
           <div className="text-sm text-gray-600">
-            Menampilkan {allProducts.length ? (page - 1) * limit + 1 : 0} -{" "}
+            Menampilkan {totalItems ? (page - 1) * limit + 1 : 0} -{" "}
             {Math.min(page * limit, totalItems)} dari {totalItems} produk
           </div>
           <div className="flex items-center gap-2">
@@ -483,31 +438,15 @@ export default function ProductsPage() {
         onClose={() => setPrintRow(null)}
       />
 
-      <RowEditModal
-        data={editRow}
-        onClose={() => setEditRow(null)}
-        onSave={(updated) => {
-          setRows((prev) =>
-            prev.map((r, i) => (i === updated.index ? updated.row : r))
-          );
-          setEditRow(null);
-        }}
-      />
-
       <DeleteConfirmModal
-        isOpen={deleteIndex !== null}
-        onClose={() => setDeleteIndex(null)}
-        onConfirm={() => {
-          if (deleteIndex === null) return;
-          const item = rows[deleteIndex];
-          setRows((prev) => prev.filter((_, i) => i !== deleteIndex));
-          setDeleteIndex(null);
-          toast.success(`Produk "${item?.nama}" dihapus dari daftar`);
-          playSuccessSound();
+        isOpen={Boolean(productToDelete)}
+        onClose={() => setProductToDelete(null)}
+        onConfirm={async () => {
+          if (!productToDelete) return;
+          await handleDeleteProduct(productToDelete);
+          setProductToDelete(null);
         }}
-        itemName={
-          deleteIndex !== null ? rows[deleteIndex]?.nama || "produk ini" : ""
-        }
+        itemName={productToDelete?.name || productToDelete?.nama || ""}
         title="Konfirmasi Hapus Produk"
         confirmLabel="Hapus"
         verb="menghapus"
@@ -517,12 +456,14 @@ export default function ProductsPage() {
         isOpen={isStockOpen}
         onClose={() => setIsStockOpen(false)}
         onApply={handleApplyStock}
+        products={allProducts}
       />
 
       <StockOutModal
         isOpen={isStockOutOpen}
         onClose={() => setIsStockOutOpen(false)}
         onApply={handleApplyStockOut}
+        products={allProducts}
       />
     </div>
   );
@@ -691,126 +632,75 @@ function BarcodePrintModal({ row, qty, onQtyChange, onClose }) {
   );
 }
 
-function RowEditModal({ data, onSave, onClose }) {
-  const [kode, setKode] = useState("");
-  const [nama, setNama] = useState("");
-  const [kategori, setKategori] = useState("");
-  const [hargaBeli, setHargaBeli] = useState("");
-  const [hargaJual, setHargaJual] = useState("");
+const SEARCH_DEBOUNCE_MS = 250;
+
+function ProductSearchInput({ allProducts, onSelect }) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState([]);
+  const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
-    if (!data) return;
-    setKode(data.row.kode);
-    setNama(data.row.nama);
-    setKategori(data.row.kategori);
-    setHargaBeli(data.row.hargaBeli);
-    setHargaJual(data.row.hargaJual);
-  }, [data]);
+    const handler = window.setTimeout(() => {
+      const trimmed = query.trim().toLowerCase();
+      if (trimmed.length < 3) {
+        setResults([]);
+        setIsOpen(false);
+        return;
+      }
+      const filtered = allProducts
+        .filter((product) =>
+          product.code.toLowerCase().includes(trimmed) ||
+          product.name.toLowerCase().includes(trimmed),
+        )
+        .slice(0, 10);
+      setResults(filtered);
+      setIsOpen(filtered.length > 0);
+    }, SEARCH_DEBOUNCE_MS);
 
-  if (!data) return null;
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    onSave({
-      index: data.index,
-      row: {
-        ...data.row,
-        kode,
-        nama,
-        kategori,
-        hargaBeli,
-        hargaJual,
-      },
-    });
-  };
+    return () => window.clearTimeout(handler);
+  }, [query, allProducts]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-      <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
-        <h2 className="mb-4 text-lg font-semibold text-gray-800">
-          Edit Produk
-        </h2>
-        <form onSubmit={handleSubmit} className="space-y-3 text-sm">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-gray-700">
-              Kode Produk
-            </label>
-            <input
-              value={kode}
-              onChange={(e) => setKode(e.target.value.toUpperCase())}
-              className="w-full rounded-lg border px-3 py-2 text-sm font-mono outline-none focus:ring-2 focus:ring-red-500/60"
-              required
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-gray-700">
-              Nama Produk
-            </label>
-            <input
-              value={nama}
-              onChange={(e) => setNama(e.target.value)}
-              className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-500/60"
-              required
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-gray-700">
-              Kategori
-            </label>
-            <input
-              value={kategori}
-              onChange={(e) => setKategori(e.target.value)}
-              className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-500/60"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-700">
-                Harga Pembelian (Rp)
-              </label>
-              <input
-                value={hargaBeli}
-                onChange={(e) => setHargaBeli(e.target.value)}
-                className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-500/60"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-700">
-                Harga Jual (Rp)
-              </label>
-              <input
-                value={hargaJual}
-                onChange={(e) => setHargaJual(e.target.value)}
-                className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-500/60"
-              />
-            </div>
-          </div>
-          <p className="mt-1 text-xs text-gray-500">
-            Jumlah / stok tidak bisa diubah dari sini.
-          </p>
-
-          <div className="mt-4 flex justify-end gap-2">
+    <div className="relative">
+      <label className="mb-1 block text-xs font-medium text-gray-700">
+        Scan / Kode Produk
+      </label>
+      <input
+        type="text"
+        value={query}
+        onChange={(e) => setQuery(e.target.value.toUpperCase())}
+        className="w-full rounded-lg border px-3 py-2 text-sm font-mono outline-none focus:ring-2 focus:ring-red-500/60"
+        placeholder="Mulai ketik kode produk"
+      />
+      {isOpen && (
+        <div className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border bg-white text-xs shadow-lg">
+          {results.map((item) => (
             <button
               type="button"
-              onClick={onClose}
-              className="rounded-lg border px-4 py-2 text-xs font-medium text-gray-700 hover:bg-gray-100"
+              key={item._id}
+              className="flex w-full items-center justify-between border-b px-3 py-2 text-left hover:bg-gray-50"
+              onClick={() => {
+                onSelect(item);
+                setQuery(item.code);
+                setIsOpen(false);
+              }}
             >
-              Batal
+              <span className="font-mono text-gray-800">{item.code}</span>
+              <span className="truncate pl-3 text-[11px] text-gray-500">
+                {item.name}
+              </span>
             </button>
-            <button
-              type="submit"
-              className="rounded-lg bg-red-500 px-4 py-2 text-xs font-medium text-white hover:bg-red-600"
-            >
-              Simpan
-            </button>
-          </div>
-        </form>
-      </div>
+          ))}
+          {results.length === 0 && (
+            <div className="px-3 py-2 text-gray-500">Tidak ada hasil.</div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-function StockInModal({ isOpen, onClose, onApply }) {
+function StockInModal({ isOpen, onClose, onApply, products }) {
   const [step, setStep] = useState(1);
   const [invoice, setInvoice] = useState("");
   const [kode, setKode] = useState("");
@@ -819,12 +709,22 @@ function StockInModal({ isOpen, onClose, onApply }) {
   const kodeInputRef = useRef(null);
 
   useEffect(() => {
-    if (!isOpen) return;
-    setStep(1);
-    setInvoice("");
-    setKode("");
-    setQty("");
-    setItems([]);
+    if (!isOpen) return undefined;
+    const timer =
+      typeof window === "undefined"
+        ? null
+        : window.setTimeout(() => {
+            setStep(1);
+            setInvoice("");
+            setKode("");
+            setQty("");
+            setItems([]);
+          }, 0);
+    return () => {
+      if (timer) {
+        window.clearTimeout(timer);
+      }
+    };
   }, [isOpen]);
 
   useEffect(() => {
@@ -859,10 +759,12 @@ function StockInModal({ isOpen, onClose, onApply }) {
     if (kodeInputRef.current) kodeInputRef.current.focus();
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    onApply({ invoice: invoice.trim(), items });
-    onClose();
+    const success = await onApply({ invoice: invoice.trim(), items });
+    if (success !== false) {
+      onClose();
+    }
   };
 
   return (
@@ -934,25 +836,14 @@ function StockInModal({ isOpen, onClose, onApply }) {
             </div>
 
             <div className="grid grid-cols-[2fr,1fr,auto] items-end gap-3">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-gray-700">
-                  Scan / Kode Produk
-                </label>
-                <input
-                  ref={kodeInputRef}
-                  type="text"
-                  value={kode}
-                  onChange={(e) => setKode(e.target.value.toUpperCase())}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      handleAddItem();
-                    }
-                  }}
-                  className="w-full rounded-lg border px-3 py-2 text-sm font-mono outline-none focus:ring-2 focus:ring-red-500/60"
-                  placeholder="Scan / ketik kode"
-                />
-              </div>
+              <ProductSearchInput
+                allProducts={products}
+                onSelect={(product) => {
+                  setKode(product.code);
+                  setQty("1");
+                  kodeInputRef.current?.focus();
+                }}
+              />
               <div>
                 <label className="mb-1 block text-xs font-medium text-gray-700">
                   Jumlah
@@ -1048,7 +939,7 @@ function StockInModal({ isOpen, onClose, onApply }) {
   );
 }
 
-function StockOutModal({ isOpen, onClose, onApply }) {
+function StockOutModal({ isOpen, onClose, onApply, products }) {
   const [step, setStep] = useState(1);
   const [invoice, setInvoice] = useState("");
   const [kode, setKode] = useState("");
@@ -1057,12 +948,22 @@ function StockOutModal({ isOpen, onClose, onApply }) {
   const kodeInputRef = useRef(null);
 
   useEffect(() => {
-    if (!isOpen) return;
-    setStep(1);
-    setInvoice("");
-    setKode("");
-    setQty("");
-    setItems([]);
+    if (!isOpen) return undefined;
+    const timer =
+      typeof window === "undefined"
+        ? null
+        : window.setTimeout(() => {
+            setStep(1);
+            setInvoice("");
+            setKode("");
+            setQty("");
+            setItems([]);
+          }, 0);
+    return () => {
+      if (timer) {
+        window.clearTimeout(timer);
+      }
+    };
   }, [isOpen]);
 
   useEffect(() => {
@@ -1097,10 +998,12 @@ function StockOutModal({ isOpen, onClose, onApply }) {
     if (kodeInputRef.current) kodeInputRef.current.focus();
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    onApply({ invoice: invoice.trim(), items });
-    onClose();
+    const success = await onApply({ invoice: invoice.trim(), items });
+    if (success !== false) {
+      onClose();
+    }
   };
 
   return (
@@ -1136,25 +1039,14 @@ function StockOutModal({ isOpen, onClose, onApply }) {
             className="space-y-4 text-sm"
           >
             <div className="grid grid-cols-[2fr,1fr,auto] items-end gap-3">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-gray-700">
-                  Scan / Kode Produk
-                </label>
-                <input
-                  ref={kodeInputRef}
-                  type="text"
-                  value={kode}
-                  onChange={(e) => setKode(e.target.value.toUpperCase())}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      handleAddItem();
-                    }
-                  }}
-                  className="w-full rounded-lg border px-3 py-2 text-sm font-mono outline-none focus:ring-2 focus:ring-red-500/60"
-                  placeholder="Scan / ketik kode"
-                />
-              </div>
+              <ProductSearchInput
+                allProducts={products}
+                onSelect={(product) => {
+                  setKode(product.code);
+                  setQty("1");
+                  kodeInputRef.current?.focus();
+                }}
+              />
               <div>
                 <label className="mb-1 block text-xs font-medium text-gray-700">
                   Jumlah
@@ -1305,3 +1197,14 @@ style.innerHTML = `
 if (typeof document !== "undefined") {
   document.head.appendChild(style);
 }
+
+
+
+
+
+
+
+
+
+
+

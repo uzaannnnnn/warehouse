@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import {
   FiBox,
   FiChevronDown,
@@ -6,80 +6,62 @@ import {
   FiSearch,
   FiX,
 } from "react-icons/fi";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion as Motion, AnimatePresence } from "framer-motion";
 import Pagination from "../../../components/common/Pagination";
-
-const SAMPLE_INVOICES = [
-  {
-    id: 1,
-    invoice: "INV-IN-001",
-    type: "Masuk",
-    date: "2025-01-10",
-    totalQty: 45,
-    details: [
-      { kode: "KVB-CH", nama: "MANGKOK GANDA KVB", qty: 20 },
-      { kode: "K16-CH", nama: "MANGKOK GANDA K16", qty: 15 },
-      { kode: "KVY-CH", nama: "MANGKOK GANDA KVY", qty: 10 },
-    ],
-  },
-  {
-    id: 2,
-    invoice: "INV-OUT-002",
-    type: "Keluar",
-    date: "2025-01-11",
-    totalQty: 12,
-    details: [
-      { kode: "B74-CH", nama: "MANGKOK GANDA B74", qty: 4 },
-      { kode: "2PH-CH", nama: "MANGKOK GANDA 2PH", qty: 8 },
-    ],
-  },
-  {
-    id: 3,
-    invoice: "INV-IN-003",
-    type: "Masuk",
-    date: "2025-01-12",
-    totalQty: 72,
-    details: [
-      { kode: "KVB-CH", nama: "MANGKOK GANDA KVB", qty: 30 },
-      { kode: "KVY-CH", nama: "MANGKOK GANDA KVY", qty: 18 },
-      { kode: "B74-CH", nama: "MANGKOK GANDA B74", qty: 24 },
-    ],
-  },
-];
+import { fetchInvoices } from "../api/invoices";
 
 export default function InvoiceHistoryPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(1);
-  const [limit] = useState(10);
+  const limit = 10;
   const [expandedId, setExpandedId] = useState(null);
+  const [invoices, setInvoices] = useState([]);
+  const [totalItems, setTotalItems] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
 
   useEffect(() => {
-    const t = setTimeout(() => setLoading(false), 400);
-    return () => clearTimeout(t);
-  }, []);
-
-  const filtered = useMemo(() => {
-    const q = searchTerm.trim().toLowerCase();
-    if (!q) return SAMPLE_INVOICES;
-    return SAMPLE_INVOICES.filter((row) => {
-      return (
-        row.invoice.toLowerCase().includes(q) ||
-        row.type.toLowerCase().includes(q) ||
-        row.date.toLowerCase().includes(q)
-      );
-    });
+    const handler = setTimeout(() => {
+      setDebouncedSearch(searchTerm.trim());
+    }, 400);
+    return () => clearTimeout(handler);
   }, [searchTerm]);
-
-  const totalItems = filtered.length;
-  const totalPages = Math.max(1, Math.ceil(totalItems / limit));
-  const startIndex = (page - 1) * limit;
-  const pageRows = filtered.slice(startIndex, startIndex + limit);
 
   useEffect(() => {
-    const t = setTimeout(() => setPage(1), 300);
-    return () => clearTimeout(t);
-  }, [searchTerm]);
+    setPage(1);
+  }, [debouncedSearch]);
+
+  useEffect(() => {
+    let active = true;
+    async function loadInvoices() {
+      setLoading(true);
+      try {
+        const data = await fetchInvoices({
+          page,
+          limit,
+          search: debouncedSearch || undefined,
+        });
+        if (!active) return;
+        setInvoices(Array.isArray(data?.items) ? data.items : []);
+        setTotalItems(Number(data?.total || 0));
+        setTotalPages(Number(data?.pages || 1));
+      } catch (err) {
+        if (!active) return;
+        console.error("Gagal memuat invoice:", err.message);
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+    loadInvoices();
+    return () => {
+      active = false;
+    };
+  }, [page, limit, debouncedSearch]);
+
+  const pageRows = invoices;
+  const isSearching = Boolean(debouncedSearch);
+  const startIndex = totalItems ? (page - 1) * limit + 1 : 0;
 
   return (
     <div className="p-6 bg-gray-50 min-h-[90vh] rounded-2xl animate-fadeIn">
@@ -129,153 +111,133 @@ export default function InvoiceHistoryPage() {
           </svg>
           <p className="text-sm font-medium">Memuat data invoice...</p>
         </div>
-      ) : totalItems === 0 && !searchTerm ? (
+      ) : pageRows.length === 0 ? (
         <EmptyState
-          title="Belum ada invoice"
-          description="Belum ada riwayat stok masuk maupun keluar."
-          buttonText=""
-          onButtonClick={null}
-          illustration="box"
-        />
-      ) : totalItems === 0 && searchTerm ? (
-        <EmptyState
-          title="Invoice tidak ditemukan"
-          description="Coba periksa kembali kata kunci pencarianmu atau reset filter."
-          buttonText="Reset Pencarian"
-          onButtonClick={() => setSearchTerm("")}
-          illustration="search"
+          title={isSearching ? "Invoice tidak ditemukan" : "Belum ada invoice"}
+          description={
+            isSearching
+              ? "Coba periksa kembali kata kunci pencarianmu atau reset filter."
+              : "Semua transaksi akan muncul di sini setelah Anda mencatat stok masuk atau keluar."
+          }
+          illustration={isSearching ? "search" : "box"}
+          buttonText={isSearching ? "Reset Pencarian" : undefined}
+          onButtonClick={isSearching ? () => setSearchTerm("") : undefined}
         />
       ) : (
         <div className="overflow-hidden rounded-xl border bg-white shadow-sm">
           <table className="min-w-full border-collapse text-sm text-gray-700">
             <thead className="bg-gray-100 text-xs uppercase text-gray-600">
               <tr>
-                <th className="w-10 p-3 text-center" />
-                <th className="w-12 p-3 text-center">No</th>
-                <th className="p-3 text-left">No. Invoice</th>
-                <th className="p-3 text-left">Tanggal</th>
+                <th className="w-12 p-3 text-center">No.</th>
+                <th className="p-3 text-left">Nomor Invoice</th>
                 <th className="p-3 text-left">Tipe</th>
-                <th className="p-3 text-right">Total Item</th>
+                <th className="p-3 text-left">Tanggal</th>
                 <th className="p-3 text-right">Total Qty</th>
+                <th className="w-16 p-3 text-center" />
               </tr>
             </thead>
             <tbody>
               <AnimatePresence initial={false}>
                 {pageRows.map((row, index) => {
-                  const isExpanded = expandedId === row.id;
+                  const isExpanded = expandedId === row._id;
+                  const isStockIn = row.type === "in";
+                  const typeLabel = isStockIn ? "Masuk" : "Keluar";
+                  const badgeColor = isStockIn
+                    ? "bg-emerald-100 text-emerald-600"
+                    : "bg-red-100 text-red-600";
+                  const invoiceDate = row.date
+                    ? new Date(row.date).toLocaleDateString("id-ID")
+                    : "-";
+                  const totalQty =
+                    row.totalQuantity ??
+                    row.items?.reduce((sum, item) => sum + (item.quantity || 0), 0) ??
+                    0;
                   return (
-                    <Fragment key={row.id}>
-                      <motion.tr
+                    <Fragment key={row._id}>
+                      <Motion.tr
                         layout
-                        onClick={() =>
-                          setExpandedId((prev) =>
-                            prev === row.id ? null : row.id,
-                          )
-                        }
-                        className={`border-t cursor-pointer transition ${
-                          isExpanded
-                            ? "bg-red-50/60 shadow-[inset_0_2px_6px_rgba(0,0,0,0.05)]"
-                            : "hover:bg-gray-50"
-                        }`}
-                        whileHover={{ scale: 1.002 }}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        transition={{ duration: 0.25 }}
+                        className="border-b bg-white"
                       >
-                        <td className="text-center">
-                          <motion.div
-                            animate={{ rotate: isExpanded ? 180 : 0 }}
-                            transition={{ duration: 0.25 }}
-                            className="inline-flex items-center justify-center w-7 h-7"
-                          >
-                            {isExpanded ? (
-                              <FiChevronUp className="w-4 h-4 text-gray-500" />
-                            ) : (
-                              <FiChevronDown className="w-4 h-4 text-gray-500" />
-                            )}
-                          </motion.div>
-                        </td>
                         <td className="p-3 text-center text-xs font-medium text-gray-600">
-                          {startIndex + index + 1}
+                          {startIndex + index}
                         </td>
-                        <td className="p-3 font-mono text-sm text-gray-800">
-                          {row.invoice}
-                        </td>
-                        <td className="p-3 text-gray-800">
-                          {row.date}
-                        </td>
+                        <td className="p-3 font-semibold">{row.invoiceNumber}</td>
                         <td className="p-3">
                           <span
-                            className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
-                              row.type === "Masuk"
-                                ? "bg-emerald-50 text-emerald-700"
-                                : "bg-amber-50 text-amber-700"
-                            }`}
+                            className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold ${badgeColor}`}
                           >
-                            {row.type}
+                            {typeLabel}
                           </span>
                         </td>
-                        <td className="p-3 text-right text-gray-800">
-                          {row.details?.length || 0}
+                        <td className="p-3 text-gray-600">{invoiceDate}</td>
+                        <td className="p-3 text-right font-semibold">
+                          {totalQty}
                         </td>
-                        <td className="p-3 text-right text-gray-800">
-                          {row.totalQty}
+                        <td className="p-3 text-center">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedId((prev) => (prev === row._id ? null : row._id))
+                            }
+                            className="inline-flex items-center justify-center rounded-lg border px-3 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100"
+                            title={isExpanded ? "Tutup detail" : "Lihat detail"}
+                          >
+                            {isExpanded ? <FiChevronUp /> : <FiChevronDown />}
+                          </button>
                         </td>
-                      </motion.tr>
-
+                      </Motion.tr>
                       <AnimatePresence>
                         {isExpanded && (
-                          <motion.tr
-                            key={`expanded-${row.id}`}
+                          <Motion.tr
+                            layout
                             initial={{ opacity: 0, height: 0 }}
                             animate={{ opacity: 1, height: "auto" }}
                             exit={{ opacity: 0, height: 0 }}
-                            transition={{ duration: 0.25 }}
+                            transition={{ duration: 0.3 }}
                           >
-                            <td
-                              colSpan={7}
-                              className="bg-white px-6 pb-5 pt-1 text-xs text-gray-700"
-                            >
-                              <motion.div
+                            <td colSpan={6} className="bg-gray-50 p-4">
+                              <Motion.div
                                 initial={{ opacity: 0, y: 10 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 exit={{ opacity: 0, y: -10 }}
                                 transition={{ duration: 0.25 }}
-                                className="mt-2 overflow-x-auto rounded-lg border bg-gray-50"
+                                className="rounded-lg border bg-white p-4"
                               >
-                                <table className="min-w-full border-collapse text-xs">
-                                  <thead className="bg-gray-100 text-[11px] uppercase text-gray-500">
-                                    <tr>
-                                      <th className="px-3 py-2 text-left">
-                                        Kode Produk
-                                      </th>
-                                      <th className="px-3 py-2 text-left">
-                                        Nama Produk
-                                      </th>
-                                      <th className="px-3 py-2 text-right">
-                                        Qty
-                                      </th>
+                                <div className="mb-3 text-sm text-gray-500">Detail Produk</div>
+                                <table className="min-w-full text-xs text-gray-600">
+                                  <thead>
+                                    <tr className="bg-gray-100 text-[11px] uppercase text-gray-500">
+                                      <th className="px-3 py-2 text-left">Kode Produk</th>
+                                      <th className="px-3 py-2 text-left">Nama Produk</th>
+                                      <th className="px-3 py-2 text-right">Qty</th>
                                     </tr>
                                   </thead>
                                   <tbody>
-                                    {row.details?.map((d) => (
+                                    {row.items?.map((d) => (
                                       <tr
-                                        key={d.kode}
+                                        key={`${row._id}-${d.productCode}`}
                                         className="border-t last:border-b bg-white hover:bg-gray-50"
                                       >
                                         <td className="px-3 py-1 font-mono">
-                                          {d.kode}
+                                          {d.productCode}
                                         </td>
                                         <td className="px-3 py-1">
-                                          {d.nama}
+                                          {d.productName}
                                         </td>
                                         <td className="px-3 py-1 text-right">
-                                          {d.qty}
+                                          {d.quantity}
                                         </td>
                                       </tr>
                                     ))}
                                   </tbody>
                                 </table>
-                              </motion.div>
+                              </Motion.div>
                             </td>
-                          </motion.tr>
+                          </Motion.tr>
                         )}
                       </AnimatePresence>
                     </Fragment>
@@ -286,12 +248,11 @@ export default function InvoiceHistoryPage() {
           </table>
         </div>
       )}
-
       {!loading && totalPages > 1 && (
         <div className="mt-6 flex flex-col md:flex-row items-center justify-between gap-3">
           <div className="text-sm text-gray-600">
             Menampilkan{" "}
-            {totalItems ? startIndex + 1 : 0} -{" "}
+            {startIndex} -{" "}
             {Math.min(page * limit, totalItems)} dari {totalItems} invoice
           </div>
           <div className="flex items-center gap-3">
@@ -370,3 +331,12 @@ function EmptyState({
     </div>
   );
 }
+
+
+
+
+
+
+
+
+

@@ -1,10 +1,14 @@
-import { Outlet } from "react-router-dom";
+import { Navigate, Outlet } from "react-router-dom";
 import Sidebar from "../../components/layout/Sidebar";
 import Header from "../../components/organisms/Header";
 import { useAuth } from "../../context/AuthContext";
 
 export default function WarehouseLayout() {
-  const { logout } = useAuth();
+  const { logout, isAuthenticated } = useAuth();
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
 
   return (
     <div className="flex min-h-screen bg-gray-100">

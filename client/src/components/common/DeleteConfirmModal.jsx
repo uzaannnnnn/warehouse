@@ -1,4 +1,4 @@
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion as Motion } from "framer-motion";
 import { Dialog } from "@headlessui/react";
 
 export default function DeleteConfirmModal({
@@ -23,7 +23,7 @@ export default function DeleteConfirmModal({
           onClose={onClose}
           className="relative z-50"
         >
-          <motion.div
+          <Motion.div
             key="overlay"
             className="fixed inset-0 bg-black/40 backdrop-blur-sm"
             initial={{ opacity: 0 }}
@@ -35,7 +35,7 @@ export default function DeleteConfirmModal({
           />
 
           <div className="fixed inset-0 flex items-center justify-center p-4">
-            <motion.div
+            <Motion.div
               key="modal"
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -52,24 +52,24 @@ export default function DeleteConfirmModal({
               </p>
 
               <div className="mt-4 flex justify-end gap-3">
-                <motion.button
+                <Motion.button
                   whileTap={{ scale: 0.95 }}
                   type="button"
                   className="cursor-pointer rounded-md bg-gray-200 px-4 py-2 text-sm hover:bg-gray-300"
                   onClick={onClose}
                 >
                   Kembali
-                </motion.button>
-                <motion.button
+                </Motion.button>
+                <Motion.button
                   whileTap={{ scale: 0.95 }}
                   type="button"
                   className="cursor-pointer rounded-md bg-red-600 px-4 py-2 text-sm text-white hover:bg-red-700"
                   onClick={onConfirm}
                 >
                   {resolvedConfirm}
-                </motion.button>
+                </Motion.button>
               </div>
-            </motion.div>
+            </Motion.div>
           </div>
         </Dialog>
       )}

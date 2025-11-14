@@ -1,17 +1,27 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { FiEye, FiEyeOff } from "react-icons/fi";
+import { useNavigate } from "react-router-dom";
+import ReCAPTCHA from "react-google-recaptcha";
 import FormField from "../../components/molecules/FormField";
 import { AuthButton } from "../../components/atoms/AuthButton";
 import Card from "../../components/atoms/Card";
 import { toast } from "sonner";
 import { playSuccessSound } from "../../utils/sound";
+import { useAuth } from "../../context/AuthContext";
+
+const isCaptchaBypassed = String(import.meta.env.VITE_BYPASS_CAPTCHA).toLowerCase() === "true";
+const recaptchaSiteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
 
 export default function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [emailError, setEmailError] = useState("");
+  const [captchaToken, setCaptchaToken] = useState("");
   const [loading, setLoading] = useState(false);
+  const captchaRef = useRef(null);
+  const navigate = useNavigate();
+  const { login } = useAuth();
 
   const validateEmail = (value) => {
     const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -20,7 +30,7 @@ export default function LoginForm() {
     return "";
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     const err = validateEmail(email);
     if (err) {
@@ -28,16 +38,34 @@ export default function LoginForm() {
       return;
     }
 
-    setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      // Di sini nanti bisa diganti dengan logika auth asli
-      toast.success("Login dummy untuk kebutuhan UI saja");
+    if (!isCaptchaBypassed && !captchaToken) {
+      toast.error("Silakan selesaikan captcha terlebih dahulu");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await login({
+        email: email.trim(),
+        password,
+        captchaToken: isCaptchaBypassed ? "bypass-token" : captchaToken,
+      });
       playSuccessSound();
-    }, 800);
+      toast.success("Login berhasil");
+      navigate("/warehouse", { replace: true });
+    } catch (error) {
+      const message = error?.message ?? "Gagal login, periksa kembali email dan password Anda";
+      toast.error(message);
+      if (!isCaptchaBypassed && captchaRef.current) {
+        captchaRef.current.reset();
+        setCaptchaToken("");
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const isDisabled = !email.trim() || !password.trim();
+  const isDisabled = !email.trim() || !password.trim() || loading;
 
   return (
     <Card className="mx-auto">
@@ -63,7 +91,7 @@ export default function LoginForm() {
             type={showPassword ? "text" : "password"}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="••••••••"
+            placeholder="********"
           />
           <button
             type="button"
@@ -76,11 +104,19 @@ export default function LoginForm() {
           </button>
         </div>
 
-        <div className="mb-4 flex justify-center">
-          <div className="flex h-20 w-full max-w-xs items-center justify-center rounded border border-slate-300 bg-slate-50 text-[11px] text-slate-500">
-            reCAPTCHA placeholder (UI saja)
+        {!isCaptchaBypassed && recaptchaSiteKey ? (
+          <div className="mb-4 flex justify-center">
+            <ReCAPTCHA
+              ref={captchaRef}
+              sitekey={recaptchaSiteKey}
+              onChange={(token) => setCaptchaToken(token ?? "")}
+            />
           </div>
-        </div>
+        ) : (
+          <div className="mb-4 rounded border border-dashed border-slate-300 bg-slate-50 p-3 text-center text-xs text-slate-600">
+            reCAPTCHA dinonaktifkan melalui konfigurasi lingkungan
+          </div>
+        )}
 
         <AuthButton
           isDisabled={isDisabled}

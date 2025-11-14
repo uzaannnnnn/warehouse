@@ -7,7 +7,7 @@ import {
   FiFileText,
   FiTrash2,
 } from "react-icons/fi";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion as Motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { formatRupiah, variants as VARIANTS } from "../api/mockData";
 import DeleteConfirmModal from "../../../components/common/DeleteConfirmModal";
@@ -386,7 +386,7 @@ export default function ProductTable({
 
                 return (
                   <React.Fragment key={p._id}>
-                    <motion.tr
+                    <Motion.tr
                       onClick={() => handleRowClick(p._id)}
                       layout
                       className={`cursor-pointer border-b transition ${
@@ -397,7 +397,7 @@ export default function ProductTable({
                       whileHover={{ scale: 1.002 }}
                     >
                       <td className="text-center">
-                        <motion.div
+                        <Motion.div
                           animate={{ rotate: isExpanded ? 180 : 0 }}
                           transition={{ duration: 0.25 }}
                           className="inline-flex h-7 w-7 items-center justify-center"
@@ -407,7 +407,7 @@ export default function ProductTable({
                           ) : (
                             <FiChevronDown className="h-4 w-4 text-gray-500" />
                           )}
-                        </motion.div>
+                        </Motion.div>
                       </td>
                       <td className="p-3 text-center text-xs font-medium text-gray-700">
                         {((Number(page) || 1) - 1) * (Number(limit) || 10) +
@@ -455,11 +455,11 @@ export default function ProductTable({
                           </TooltipWrapper>
                         </div>
                       </td>
-                    </motion.tr>
+                    </Motion.tr>
 
                     <AnimatePresence>
                       {isExpanded && (
-                        <motion.tr
+                        <Motion.tr
                           key={`expanded-${p._id}`}
                           initial={{ opacity: 0, height: 0 }}
                           animate={{ opacity: 1, height: "auto" }}
@@ -467,7 +467,7 @@ export default function ProductTable({
                           transition={{ duration: 0.3 }}
                         >
                           <td colSpan={10} className="bg-white p-3">
-                            <motion.div
+                            <Motion.div
                               initial={{ opacity: 0, y: 10 }}
                               animate={{ opacity: 1, y: 0 }}
                               exit={{ opacity: 0, y: -10 }}
@@ -555,9 +555,9 @@ export default function ProductTable({
                                   <span>Rentang: {priceRange}</span>
                                 </div>
                               </div>
-                            </motion.div>
+                            </Motion.div>
                           </td>
-                        </motion.tr>
+                        </Motion.tr>
                       )}
                     </AnimatePresence>
                   </React.Fragment>
@@ -577,3 +577,4 @@ export default function ProductTable({
     </div>
   );
 }
+
