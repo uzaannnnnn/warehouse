@@ -6,14 +6,15 @@
   "scripts": {
     "dev": "cross-env NODE_ENV=development nodemon src/server.js",
     "start": "node src/server.js",
-    "seed": "node src/scripts/create-admin.js",
+    "seed:user": "node src/scripts/create-admin.js",
     "seed:users": "node src/scripts/seed-users.js",
-    "seed:manager": "node src/scripts/seed-users.js --roles=manager",
+    "seed:manager": "npm run seed:users -- --roles=manager",
     "seed:products": "node src/scripts/seed-products.js",
     "seed:raw-materials": "node src/scripts/seed-raw-materials.js",
     "seed:invoices": "node src/scripts/seed-invoices.js",
     "seed:location-stock": "node src/scripts/seed-location-stock.js",
-    "seed:all": "node src/scripts/seed-users.js && node src/scripts/seed-products.js && node src/scripts/seed-invoices.js && node src/scripts/seed-raw-materials.js",
+    "seed:all": "npm run seed:users && npm run seed:products && npm run seed:raw-materials && npm run seed:invoices && npm run seed:location-stock",
+    "db:clear": "node src/scripts/clear-database.js",
     "test": "echo \"No tests configured\""
   },
   "keywords": [],
