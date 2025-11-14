@@ -31,6 +31,18 @@ import { playSuccessSound } from "../../../utils/sound";
 import EmptyState from "../../../components/common/EmptyState";
 import { WarehousePageShell } from "../../../components/templates/WarehousePageShell";
 
+const RAW_LOCATIONS = [
+  "01-BAHAN BAKU-KTP",
+  "02-BAHAN BAKU-DPK",
+  "03-BAHAN BAKU-BGR",
+];
+
+const PRODUCT_LOCATIONS = [
+  "04-ONLINE PACKING-KTP",
+  "05-ONLINE PACKING-DPK",
+  "06-ONLINE PACKING-BGR",
+];
+
 export default function ProductsPage({ mode = "finished" }) {
   const isRawMode = mode === "raw";
 
@@ -56,7 +68,9 @@ export default function ProductsPage({ mode = "finished" }) {
   const [allProducts, setAllProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
-  const [warehouseCode, setWarehouseCode] = useState("01-BAHAN BAKU-KTP");
+  const [warehouseCode, setWarehouseCode] = useState(
+    () => (isRawMode ? RAW_LOCATIONS[0] : PRODUCT_LOCATIONS[0]),
+  );
   const [page, setPage] = useState(1);
   const limit = 10;
   const [totalItems, setTotalItems] = useState(0);
@@ -276,6 +290,8 @@ export default function ProductsPage({ mode = "finished" }) {
     setIsStockOutOpen(true);
   };
 
+  const locationOptions = isRawMode ? RAW_LOCATIONS : PRODUCT_LOCATIONS;
+
   return (
     <WarehousePageShell
       title="Daftar Produk"
@@ -288,9 +304,11 @@ export default function ProductsPage({ mode = "finished" }) {
             onChange={(e) => setWarehouseCode(e.target.value)}
             className="rounded-lg border px-3 py-1 text-xs outline-none focus:ring-2 focus:ring-red-500/60"
           >
-            <option value="01-BAHAN BAKU-KTP">01-BAHAN BAKU-KTP</option>
-            <option value="02-BAHAN BAKU-DPK">02-BAHAN BAKU-DPK</option>
-            <option value="03-BAHAN BAKU-BGR">03-BAHAN BAKU-BGR</option>
+            {locationOptions.map((loc) => (
+              <option key={loc} value={loc}>
+                {loc}
+              </option>
+            ))}
           </select>
         </div>
       }
