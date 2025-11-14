@@ -172,9 +172,17 @@ export default function ProductsPage({ mode = "finished" }) {
   const hasAnyProduct = totalItems > 0;
 
   const getLocationStock = (product) => {
-    const stocks = Array.isArray(product.stocks) ? product.stocks : [];
-    const entry = stocks.find((s) => s.location === warehouseCode);
-    return entry && typeof entry.quantity === "number" ? entry.quantity : 0;
+    const stocks = Array.isArray(product.stocks) ? product.stocks : null;
+    if (stocks && stocks.length) {
+      const entry = stocks.find((s) => s.location === warehouseCode);
+      if (entry && typeof entry.quantity === "number") {
+        return entry.quantity;
+      }
+    }
+    if (typeof product.stock === "number") {
+      return product.stock;
+    }
+    return 0;
   };
 
   const tableRows = useMemo(
@@ -258,6 +266,16 @@ export default function ProductsPage({ mode = "finished" }) {
     }
   };
 
+  const handleOpenStockIn = async () => {
+    await reloadPage(page);
+    setIsStockOpen(true);
+  };
+
+  const handleOpenStockOut = async () => {
+    await reloadPage(page);
+    setIsStockOutOpen(true);
+  };
+
   return (
     <WarehousePageShell
       title="Daftar Produk"
@@ -302,7 +320,7 @@ export default function ProductsPage({ mode = "finished" }) {
           <div className="flex gap-2 md:ml-3">
             <button
               type="button"
-              onClick={() => setIsStockOpen(true)}
+              onClick={handleOpenStockIn}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500 text-xs md:text-sm font-medium text-white shadow-sm hover:bg-blue-600"
             >
               <FiArrowDownCircle className="text-sm" />
@@ -310,7 +328,7 @@ export default function ProductsPage({ mode = "finished" }) {
             </button>
             <button
               type="button"
-              onClick={() => setIsStockOutOpen(true)}
+              onClick={handleOpenStockOut}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 text-xs md:text-sm font-medium text-white shadow-sm hover:bg-amber-600"
             >
               <FiArrowUpCircle className="text-sm" />
@@ -515,14 +533,14 @@ export default function ProductsPage({ mode = "finished" }) {
         isOpen={isStockOpen}
         onClose={() => setIsStockOpen(false)}
         onApply={handleApplyStock}
-        products={allProducts}
+        fetchFn={api.fetchPaged}
       />
 
       <StockOutModal
         isOpen={isStockOutOpen}
         onClose={() => setIsStockOutOpen(false)}
         onApply={handleApplyStockOut}
-        products={allProducts}
+        fetchFn={api.fetchPaged}
       />
     </WarehousePageShell>
   );
@@ -630,32 +648,46 @@ function BarcodePrintModal({ row, qty, onQtyChange, onClose }) {
 
 const SEARCH_DEBOUNCE_MS = 250;
 
-function ProductSearchInput({ allProducts, onSelect }) {
-  const [query, setQuery] = useState("");
+function ProductSearchInput({ value, onChange, onSelect, inputRef, onEnter, fetchFn = fetchProductsPaged }) {
   const [results, setResults] = useState([]);
-  const [isOpen, setIsOpen] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const handler = window.setTimeout(() => {
-      const trimmed = query.trim().toLowerCase();
-      if (trimmed.length < 3) {
-        setResults([]);
-        setIsOpen(false);
-        return;
+    const trimmed = value.trim();
+    if (trimmed.length < 3) {
+      setResults([]);
+      setOpen(false);
+      return undefined;
+    }
+
+    let active = true;
+    setLoading(true);
+    const handler = window.setTimeout(async () => {
+      try {
+        const data = await fetchFn({
+          search: trimmed,
+          limit: 30,
+        });
+        if (!active) return;
+        const items = Array.isArray(data?.items) ? data.items : [];
+        setResults(items);
+        setOpen(items.length > 0);
+      } catch {
+        if (active) {
+          setResults([]);
+          setOpen(false);
+        }
+      } finally {
+        if (active) setLoading(false);
       }
-      const filtered = allProducts
-        .filter(
-          (product) =>
-            product.code.toLowerCase().includes(trimmed) ||
-            product.name.toLowerCase().includes(trimmed)
-        )
-        .slice(0, 10);
-      setResults(filtered);
-      setIsOpen(filtered.length > 0);
     }, SEARCH_DEBOUNCE_MS);
 
-    return () => window.clearTimeout(handler);
-  }, [query, allProducts]);
+    return () => {
+      active = false;
+      window.clearTimeout(handler);
+    };
+  }, [value]);
 
   return (
     <div className="relative">
@@ -663,13 +695,25 @@ function ProductSearchInput({ allProducts, onSelect }) {
         Scan / Kode Produk
       </label>
       <input
+        ref={inputRef}
         type="text"
-        value={query}
-        onChange={(e) => setQuery(e.target.value.toUpperCase())}
+        value={value}
+        onChange={(e) => onChange(e.target.value.toUpperCase())}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            onEnter?.();
+          }
+        }}
         className="w-full rounded-lg border px-3 py-2 text-sm font-mono outline-none focus:ring-2 focus:ring-red-500/60"
-        placeholder="Mulai ketik kode produk"
+        placeholder="Ketik minimal 3 karakter"
       />
-      {isOpen && (
+      {loading && (
+        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-gray-400">
+          ...
+        </span>
+      )}
+      {open && (
         <div className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border bg-white text-xs shadow-lg">
           {results.map((item) => (
             <button
@@ -678,8 +722,8 @@ function ProductSearchInput({ allProducts, onSelect }) {
               className="flex w-full items-center justify-between border-b px-3 py-2 text-left hover:bg-gray-50"
               onClick={() => {
                 onSelect(item);
-                setQuery(item.code);
-                setIsOpen(false);
+                onChange(item.code);
+                setOpen(false);
               }}
             >
               <span className="font-mono text-gray-800">{item.code}</span>
@@ -697,7 +741,7 @@ function ProductSearchInput({ allProducts, onSelect }) {
   );
 }
 
-function StockInModal({ isOpen, onClose, onApply, products }) {
+function StockInModal({ isOpen, onClose, onApply, fetchFn }) {
   const [step, setStep] = useState(1);
   const [invoice, setInvoice] = useState("");
   const [kode, setKode] = useState("");
@@ -834,7 +878,11 @@ function StockInModal({ isOpen, onClose, onApply, products }) {
 
             <div className="grid grid-cols-[2fr,1fr,auto] items-end gap-3">
               <ProductSearchInput
-                allProducts={products}
+                value={kode}
+                onChange={setKode}
+                inputRef={kodeInputRef}
+                onEnter={handleAddItem}
+                fetchFn={fetchFn}
                 onSelect={(product) => {
                   setKode(product.code);
                   setQty("1");
@@ -936,7 +984,7 @@ function StockInModal({ isOpen, onClose, onApply, products }) {
   );
 }
 
-function StockOutModal({ isOpen, onClose, onApply, products }) {
+function StockOutModal({ isOpen, onClose, onApply, fetchFn }) {
   const [step, setStep] = useState(1);
   const [invoice, setInvoice] = useState("");
   const [kode, setKode] = useState("");
@@ -1037,7 +1085,11 @@ function StockOutModal({ isOpen, onClose, onApply, products }) {
           >
             <div className="grid grid-cols-[2fr,1fr,auto] items-end gap-3">
               <ProductSearchInput
-                allProducts={products}
+                value={kode}
+                onChange={setKode}
+                inputRef={kodeInputRef}
+                onEnter={handleAddItem}
+                fetchFn={fetchFn}
                 onSelect={(product) => {
                   setKode(product.code);
                   setQty("1");

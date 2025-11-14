@@ -63,7 +63,7 @@ export default function InvoiceHistoryPage({ segment = "finished" }) {
     return () => {
       active = false;
     };
-  }, [page, limit, debouncedSearch, reloadKey]);
+  }, [page, limit, debouncedSearch, reloadKey, segment]);
 
   const pageRows =
     filterType === "all"
@@ -181,7 +181,7 @@ export default function InvoiceHistoryPage({ segment = "finished" }) {
             </thead>
             <tbody>
               <AnimatePresence initial={false}>
-                {pageRows.map((row, index) => {
+                {pageRows.map((row) => {
                   const isExpanded = expandedId === row._id;
                   const isStockIn = row.type === "in";
                   const typeLabel = isStockIn ? "Masuk" : "Keluar";

@@ -13,7 +13,7 @@
     "seed:raw-materials": "node src/scripts/seed-raw-materials.js",
     "seed:invoices": "node src/scripts/seed-invoices.js",
     "seed:location-stock": "node src/scripts/seed-location-stock.js",
-    "seed:all": "node src/scripts/seed-users.js && node src/scripts/seed-products.js && node src/scripts/seed-invoices.js",
+    "seed:all": "node src/scripts/seed-users.js && node src/scripts/seed-products.js && node src/scripts/seed-invoices.js && node src/scripts/seed-raw-materials.js",
     "test": "echo \"No tests configured\""
   },
   "keywords": [],
