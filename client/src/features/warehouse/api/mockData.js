@@ -81,3 +81,49 @@ export async function upsertProduct(product) {
   const { data } = await apiClient.put(`/warehouse/products/${payload._id}`, body);
   return data?.data;
 }
+
+export async function fetchRawCategories() {
+  const { data } = await apiClient.get("/warehouse/raw-categories");
+  return data?.data || [];
+}
+
+export async function fetchRawProductsPaged(params = {}) {
+  const { data } = await apiClient.get("/warehouse/raw-products", {
+    params: {
+      page: params.page,
+      limit: params.limit,
+      search: params.search,
+    },
+  });
+  return data?.data || { items: [], total: 0, pages: 1 };
+}
+
+export async function fetchRawProductById(id) {
+  const { data } = await apiClient.get(`/warehouse/raw-products/${id}`);
+  return data?.data;
+}
+
+export async function deleteRawProductById(id) {
+  await apiClient.delete(`/warehouse/raw-products/${id}`);
+}
+
+export async function upsertRawProduct(product) {
+  const payload = normalizeProductPayload(product);
+  const body = {
+    code: payload.code,
+    name: payload.name,
+    category: payload.category,
+    purchasePrice:
+      typeof payload.purchasePrice === "number" ? payload.purchasePrice : 0,
+    sellingPrice:
+      typeof payload.sellingPrice === "number" ? payload.sellingPrice : 0,
+  };
+
+  if (!payload._id) {
+    const { data } = await apiClient.post("/warehouse/raw-products", body);
+    return data?.data;
+  }
+
+  const { data } = await apiClient.put(`/warehouse/raw-products/${payload._id}`, body);
+  return data?.data;
+}

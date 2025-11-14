@@ -4,19 +4,53 @@ import { FiBox, FiFileText } from "react-icons/fi";
 
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(
-    () => JSON.parse(localStorage.getItem("sidebarCollapsed")) || false,
+    () => JSON.parse(localStorage.getItem("sidebarCollapsed")) || false
   );
 
   useEffect(() => {
     localStorage.setItem("sidebarCollapsed", JSON.stringify(collapsed));
   }, [collapsed]);
 
-  const menu = [
-    { label: "Products", path: "/warehouse/products", icon: <FiBox /> },
+  const sections = [
     {
-      label: "History Invoice",
-      path: "/warehouse/invoices-history",
-      icon: <FiFileText />,
+      title: "Bahan Baku",
+      items: [
+        {
+          label: "Bahan Baku",
+          path: "/warehouse/raw-materials",
+          icon: <FiBox />,
+        },
+        {
+          label: "History Invoice",
+          path: "/warehouse/raw-invoices-history",
+          icon: <FiFileText />,
+        },
+      ],
+    },
+    {
+      title: "Produksi",
+      items: [
+        {
+          label: "Produksi",
+          path: "/warehouse/productions",
+          icon: <FiFileText />,
+        },
+      ],
+    },
+    {
+      title: "Produk",
+      items: [
+        {
+          label: "Produk",
+          path: "/warehouse/products",
+          icon: <FiBox />,
+        },
+        {
+          label: "History Invoice",
+          path: "/warehouse/invoices-history",
+          icon: <FiFileText />,
+        },
+      ],
     },
   ];
 
@@ -50,28 +84,39 @@ export default function Sidebar() {
       </div>
 
       <nav className="flex-1 space-y-2 p-4">
-        {menu.map((item) => (
-          <TooltipWrapper
-            key={item.label}
-            label={item.label}
-            collapsed={collapsed}
-          >
-            <NavLink
-              to={item.path}
-              className={({ isActive }) =>
-                `flex w-full cursor-pointer items-center rounded-md px-3 py-2 transition-colors ${
-                  isActive
-                    ? "bg-red-500 text-white"
-                    : "text-gray-700 hover:bg-gray-100"
-                }`
-              }
-            >
-              <span className="mr-2 flex h-5 w-5 items-center justify-center">
-                {item.icon}
-              </span>
-              {!collapsed && <span>{item.label}</span>}
-            </NavLink>
-          </TooltipWrapper>
+        {sections.map((section) => (
+          <div key={section.title} className="mb-3">
+            {!collapsed && (
+              <div className="mb-1 px-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                {section.title}
+              </div>
+            )}
+            <div className="space-y-1">
+              {section.items.map((item) => (
+                <TooltipWrapper
+                  key={item.label}
+                  label={item.label}
+                  collapsed={collapsed}
+                >
+                  <NavLink
+                    to={item.path}
+                    className={({ isActive }) =>
+                      `flex w-full cursor-pointer items-center rounded-md px-3 py-2 transition-colors ${
+                        isActive
+                          ? "bg-red-500 text-white"
+                          : "text-gray-700 hover:bg-gray-100"
+                      }`
+                    }
+                  >
+                    <span className="mr-2 flex h-5 w-5 items-center justify-center">
+                      {item.icon}
+                    </span>
+                    {!collapsed && <span>{item.label}</span>}
+                  </NavLink>
+                </TooltipWrapper>
+              ))}
+            </div>
+          </div>
         ))}
       </nav>
     </aside>

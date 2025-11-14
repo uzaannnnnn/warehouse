@@ -6,6 +6,9 @@ import {
   FiSearch,
   FiTrash2,
   FiX,
+  FiArrowDownCircle,
+  FiArrowUpCircle,
+  FiPlus,
 } from "react-icons/fi";
 import { toast } from "sonner";
 import Pagination from "../../../components/common/Pagination";
@@ -13,16 +16,37 @@ import EditProductModal from "../components/EditProductModal";
 import Barcode from "../../../components/common/Barcode";
 import DeleteConfirmModal from "../../../components/common/DeleteConfirmModal";
 import {
-  fetchCategories,
+  fetchCategories as fetchProductCategories,
   fetchProductsPaged,
   deleteProductById,
   upsertProduct,
   formatRupiah,
+  fetchRawCategories,
+  fetchRawProductsPaged,
+  deleteRawProductById,
+  upsertRawProduct,
 } from "../api/mockData";
 import { createInvoiceRecord } from "../api/invoices";
 import { playSuccessSound } from "../../../utils/sound";
+import EmptyState from "../../../components/common/EmptyState";
+import { WarehousePageShell } from "../../../components/templates/WarehousePageShell";
 
-export default function ProductsPage() {
+export default function ProductsPage({ mode = "finished" }) {
+  const isRawMode = mode === "raw";
+
+  const api = isRawMode
+    ? {
+        fetchCategories: fetchRawCategories,
+        fetchPaged: fetchRawProductsPaged,
+        upsert: upsertRawProduct,
+        deleteById: deleteRawProductById,
+      }
+    : {
+        fetchCategories: fetchProductCategories,
+        fetchPaged: fetchProductsPaged,
+        upsert: upsertProduct,
+        deleteById: deleteProductById,
+      };
   const [categories, setCategories] = useState([]);
 
   const [editProduct, setEditProduct] = useState(null);
@@ -32,6 +56,7 @@ export default function ProductsPage() {
   const [allProducts, setAllProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  const [warehouseCode, setWarehouseCode] = useState("01-BAHAN BAKU-KTP");
   const [page, setPage] = useState(1);
   const limit = 10;
   const [totalItems, setTotalItems] = useState(0);
@@ -44,7 +69,7 @@ export default function ProductsPage() {
 
   const reloadLookups = async () => {
     try {
-      const catRes = await fetchCategories();
+      const catRes = await api.fetchCategories();
       setCategories(catRes);
     } catch (err) {
       console.error("Gagal memuat data kategori:", err.message);
@@ -56,7 +81,7 @@ export default function ProductsPage() {
       setLoading(true);
       const q = (searchTerm || "").trim();
       const searchParam = q.length ? q : undefined;
-      const data = await fetchProductsPaged({
+      const data = await api.fetchPaged({
         page: targetPage,
         limit,
         search: searchParam,
@@ -78,7 +103,7 @@ export default function ProductsPage() {
         setLoading(true);
         const q = (searchTerm || "").trim();
         const searchParam = q.length ? q : undefined;
-        const data = await fetchProductsPaged({
+        const data = await api.fetchPaged({
           page,
           limit,
           search: searchParam,
@@ -104,7 +129,7 @@ export default function ProductsPage() {
   }, []);
 
   const handleAddProduct = async (newProduct) => {
-    await upsertProduct(newProduct);
+    await api.upsert(newProduct);
     await reloadLookups();
     if (page !== 1) {
       setPage(1);
@@ -115,7 +140,7 @@ export default function ProductsPage() {
 
   const handleUpdateProduct = async (updatedProduct) => {
     if (!updatedProduct?._id) return;
-    await upsertProduct(updatedProduct);
+    await api.upsert(updatedProduct);
     await reloadLookups();
     await reloadPage();
   };
@@ -123,8 +148,10 @@ export default function ProductsPage() {
   const handleDeleteProduct = async (product) => {
     if (!product?._id) return;
     try {
-      await deleteProductById(product._id);
-      toast.success(`Produk "${product.name || product.kode}" berhasil dihapus`);
+      await api.deleteById(product._id);
+      toast.success(
+        `Produk "${product.name || product.kode}" berhasil dihapus`
+      );
       playSuccessSound();
       if (totalItems === 1 && page > 1) {
         setPage((p) => p - 1);
@@ -144,23 +171,35 @@ export default function ProductsPage() {
 
   const hasAnyProduct = totalItems > 0;
 
+  const getLocationStock = (product) => {
+    const stocks = Array.isArray(product.stocks) ? product.stocks : [];
+    const entry = stocks.find((s) => s.location === warehouseCode);
+    return entry && typeof entry.quantity === "number" ? entry.quantity : 0;
+  };
+
   const tableRows = useMemo(
     () =>
       allProducts.map((product) => ({
         kode: product.code,
         nama: product.name,
         kategori: product.category || "-",
-        jumlah: typeof product.stock === "number" ? product.stock : 0,
-        hargaBeli: typeof product.purchasePrice === "number" ? product.purchasePrice : null,
-        hargaJual: typeof product.sellingPrice === "number" ? product.sellingPrice : null,
+        jumlah: getLocationStock(product),
+        hargaBeli:
+          typeof product.purchasePrice === "number"
+            ? product.purchasePrice
+            : null,
+        hargaJual:
+          typeof product.sellingPrice === "number"
+            ? product.sellingPrice
+            : null,
         product,
       })),
-    [allProducts],
+    [allProducts, warehouseCode]
   );
 
   const formatNumber = (value) =>
     new Intl.NumberFormat("id-ID").format(
-      typeof value === "number" ? value : Number(value) || 0,
+      typeof value === "number" ? value : Number(value) || 0
     );
 
   const handleApplyStock = async ({ invoice, items }) => {
@@ -173,6 +212,7 @@ export default function ProductsPage() {
       await createInvoiceRecord({
         invoiceNumber: invoice?.trim(),
         type: "in",
+        location: warehouseCode,
         items: items.map((item) => ({
           productCode: item.kode,
           quantity: item.qty,
@@ -200,6 +240,7 @@ export default function ProductsPage() {
       await createInvoiceRecord({
         invoiceNumber: invoice?.trim(),
         type: "out",
+        location: warehouseCode,
         items: items.map((item) => ({
           productCode: item.kode,
           quantity: item.qty,
@@ -218,23 +259,34 @@ export default function ProductsPage() {
   };
 
   return (
-    <div className="p-6 bg-gray-50 min-h-[90vh] rounded-2xl animate-fadeIn">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-        <h1 className="text-3xl font-extrabold text-gray-800 tracking-tight flex items-center gap-2 mb-7">
-          <FiBox className="text-red-500" /> Daftar Produk
-        </h1>
-
-        <div className="flex w-full flex-col gap-3 md:w-auto md:flex-row md:items-center">
+    <WarehousePageShell
+      title="Daftar Produk"
+      icon={FiBox}
+      headerBelow={
+        <div className="flex flex-wrap items-center gap-2 text-xs text-gray-700">
+          <span className="font-medium">Lokasi:</span>
+          <select
+            value={warehouseCode}
+            onChange={(e) => setWarehouseCode(e.target.value)}
+            className="rounded-lg border px-3 py-1 text-xs outline-none focus:ring-2 focus:ring-red-500/60"
+          >
+            <option value="01-BAHAN BAKU-KTP">01-BAHAN BAKU-KTP</option>
+            <option value="02-BAHAN BAKU-DPK">02-BAHAN BAKU-DPK</option>
+            <option value="03-BAHAN BAKU-BGR">03-BAHAN BAKU-BGR</option>
+          </select>
+        </div>
+      }
+      headerRight={
+        <div className="flex w-full flex-col gap-2 md:w-auto">
           <div className="relative flex-grow max-w-md">
             <input
               type="text"
               placeholder="Cari produk..."
-              className="w-full pl-10 pr-4 py-2 border rounded-lg"
+              className="w-full pl-9 pr-3 py-1.5 border rounded-lg text-sm"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
-            <FiSearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <FiSearch className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm" />
             {searchTerm && (
               <button
                 type="button"
@@ -242,7 +294,7 @@ export default function ProductsPage() {
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
                 title="Bersihkan pencarian"
               >
-                <FiX />
+                <FiX className="text-sm" />
               </button>
             )}
           </div>
@@ -251,28 +303,31 @@ export default function ProductsPage() {
             <button
               type="button"
               onClick={() => setIsStockOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-500 text-sm font-medium text-white shadow-sm hover:bg-blue-600"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500 text-xs md:text-sm font-medium text-white shadow-sm hover:bg-blue-600"
             >
-              Stok Masuk
+              <FiArrowDownCircle className="text-sm" />
+              <span>Stok Masuk</span>
             </button>
             <button
               type="button"
               onClick={() => setIsStockOutOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500 text-sm font-medium text-white shadow-sm hover:bg-amber-600"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 text-xs md:text-sm font-medium text-white shadow-sm hover:bg-amber-600"
             >
-              Stok Keluar
+              <FiArrowUpCircle className="text-sm" />
+              <span>Stok Keluar</span>
             </button>
             <button
               type="button"
               onClick={() => setIsCreateOpen(true)}
-              className="flex items-center gap-2 px-5 py-2 bg-red-500 hover:bg-red-600 cursor-pointer text-white rounded-lg"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-red-500 hover:bg-red-600 cursor-pointer text-white rounded-lg text-xs md:text-sm font-medium"
             >
-              <span className="text-xl">+</span> Tambah Produk
+              <FiPlus className="text-sm" />
+              <span>Tambah Produk</span>
             </button>
           </div>
         </div>
-      </div>
-
+      }
+    >
       {loading ? (
         <div className="animate-pulse py-20 text-center text-gray-500">
           <svg
@@ -309,7 +364,7 @@ export default function ProductsPage() {
         />
       ) : (
         <div className="overflow-hidden rounded-xl border bg-white shadow-sm">
-          <table className="min-w-full border-collapse text-sm text-gray-700">
+          <table className="min-w-full border-collapse text-xs text-gray-700">
             <thead className="bg-gray-100 text-xs uppercase text-gray-600">
               <tr>
                 <th className="w-12 p-3 text-center">No.</th>
@@ -318,8 +373,8 @@ export default function ProductsPage() {
                 <th className="p-3 text-left">Nama Produk</th>
                 <th className="p-3 text-left">Kategori</th>
                 <th className="p-3 text-right">Jumlah</th>
-                <th className="p-3 text-right">Harga Pembelian (Rp)</th>
-                <th className="p-3 text-right">Harga Jual (Rp)</th>
+                <th className="p-3 text-right">Harga Pembelian</th>
+                <th className="p-3 text-right">Harga Jual</th>
                 <th className="w-32 p-3 text-center">Aksi</th>
               </tr>
             </thead>
@@ -332,10 +387,10 @@ export default function ProductsPage() {
                   <td className="p-3 text-center text-xs font-medium text-gray-600">
                     {(page - 1) * limit + index + 1}
                   </td>
-                  <td className="p-3 font-mono text-sm text-gray-800">
+                  <td className="p-3 font-mono text-xs text-gray-800">
                     {row.kode}
                   </td>
-                  <td className="p-3 text-center text-gray-900">
+                  <td className="p-3 text-center text-xs text-gray-900">
                     <div className="flex flex-col items-center gap-2">
                       <Barcode value={row.kode} className="mx-auto h-10" />
                       <button
@@ -352,20 +407,24 @@ export default function ProductsPage() {
                       </button>
                     </div>
                   </td>
-                  <td className="p-3 font-medium text-gray-900">{row.nama}</td>
-                  <td className="p-3 text-gray-700">
-                    {row.kategori || "-"}
-                  </td>
-                  <td className="p-3 text-right text-gray-800">
+                  <td className="p-3 text-xs font-medium text-gray-900">{row.nama}</td>
+                  <td className="p-3 text-xs text-gray-700">{row.kategori || "-"}</td>
+                  <td
+                    className={`p-3 text-center text-xs text-gray-800 ${
+                      typeof row.jumlah === "number" && row.jumlah < 10
+                        ? "bg-red-50 text-red-600 font-semibold"
+                        : ""
+                    }`}
+                  >
                     {formatNumber(row.jumlah)}
                   </td>
-                  <td className="p-3 text-right text-gray-800">
+                  <td className="p-3 text-right text-xs text-gray-800">
                     {row.hargaBeli ? formatRupiah(row.hargaBeli) : "-"}
                   </td>
-                  <td className="p-3 text-right text-gray-800">
+                  <td className="p-3 text-right text-xs text-gray-800">
                     {row.hargaJual ? formatRupiah(row.hargaJual) : "-"}
                   </td>
-                  <td className="p-3 text-center">
+                  <td className="p-3 text-center text-xs">
                     <div className="inline-flex items-center gap-2">
                       <button
                         type="button"
@@ -465,70 +524,7 @@ export default function ProductsPage() {
         onApply={handleApplyStockOut}
         products={allProducts}
       />
-    </div>
-  );
-}
-
-function EmptyState({
-  title,
-  description,
-  buttonText,
-  onButtonClick,
-  illustration,
-}) {
-  const Illustrations = {
-    box: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        className="mb-4 h-28 w-28 text-red-400"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M20.25 7.5l-8.25-4.5-8.25 4.5M3 7.5v9l9 4.5 9-4.5v-9"
-        />
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M12 12l9-4.5M12 12L3 7.5"
-        />
-      </svg>
-    ),
-    search: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        className="mb-4 h-28 w-28 text-gray-400"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-        strokeWidth="1.5"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 100-15 7.5 7.5 0 000 15z"
-        />
-      </svg>
-    ),
-  };
-
-  return (
-    <div className="flex flex-col items-center justify-center py-20 text-center animate-fadeIn">
-      {Illustrations[illustration]}
-      <h2 className="mb-1 text-xl font-semibold text-gray-700">{title}</h2>
-      <p className="mb-5 text-sm text-gray-500">{description}</p>
-      <button
-        type="button"
-        onClick={onButtonClick}
-        className="rounded-lg bg-red-500 px-5 py-2 text-sm text-white shadow-md transition-all hover:bg-red-600"
-      >
-        {buttonText}
-      </button>
-    </div>
+    </WarehousePageShell>
   );
 }
 
@@ -648,9 +644,10 @@ function ProductSearchInput({ allProducts, onSelect }) {
         return;
       }
       const filtered = allProducts
-        .filter((product) =>
-          product.code.toLowerCase().includes(trimmed) ||
-          product.name.toLowerCase().includes(trimmed),
+        .filter(
+          (product) =>
+            product.code.toLowerCase().includes(trimmed) ||
+            product.name.toLowerCase().includes(trimmed)
         )
         .slice(0, 10);
       setResults(filtered);
@@ -981,7 +978,7 @@ function StockOutModal({ isOpen, onClose, onApply, products }) {
 
     setItems((prev) => {
       const existingIndex = prev.findIndex(
-        (it) => it.kode.toUpperCase() === code.toUpperCase(),
+        (it) => it.kode.toUpperCase() === code.toUpperCase()
       );
       if (existingIndex !== -1) {
         const next = [...prev];
@@ -1084,10 +1081,7 @@ function StockOutModal({ isOpen, onClose, onApply, products }) {
                   </thead>
                   <tbody>
                     {items.map((it) => (
-                      <tr
-                        key={it.kode}
-                        className="border-t last:border-b"
-                      >
+                      <tr key={it.kode} className="border-t last:border-b">
                         <td className="px-3 py-1 font-mono text-xs">
                           {it.kode}
                         </td>
@@ -1097,7 +1091,7 @@ function StockOutModal({ isOpen, onClose, onApply, products }) {
                             type="button"
                             onClick={() =>
                               setItems((prev) =>
-                                prev.filter((p) => p.kode !== it.kode),
+                                prev.filter((p) => p.kode !== it.kode)
                               )
                             }
                             className="text-[11px] text-red-500 hover:text-red-600"
@@ -1135,8 +1129,7 @@ function StockOutModal({ isOpen, onClose, onApply, products }) {
         ) : (
           <form onSubmit={handleSubmit} className="space-y-3 text-sm">
             <div className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">
-              Total item:{" "}
-              <span className="font-medium">{items.length}</span>
+              Total item: <span className="font-medium">{items.length}</span>
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-700">
@@ -1197,14 +1190,3 @@ style.innerHTML = `
 if (typeof document !== "undefined") {
   document.head.appendChild(style);
 }
-
-
-
-
-
-
-
-
-
-
-

@@ -30,6 +30,19 @@ const invoiceSchema = new mongoose.Schema(
       enum: ["in", "out"],
       required: true,
     },
+    location: {
+      type: String,
+      trim: true,
+    },
+    segment: {
+      type: String,
+      enum: ["finished", "raw"],
+      default: "finished",
+    },
+    productionClaimed: {
+      type: Boolean,
+      default: false,
+    },
     date: {
       type: Date,
       default: Date.now,

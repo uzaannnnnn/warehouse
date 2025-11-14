@@ -1,5 +1,5 @@
 const createError = require("http-errors");
-const Product = require("../models/Product");
+const RawMaterial = require("../models/RawMaterial");
 
 function parsePagination(query) {
   const page = Math.max(1, Number(query.page) || 1);
@@ -22,17 +22,17 @@ function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-async function listProducts(req, res) {
+async function listRawMaterials(req, res) {
   const { page, limit } = parsePagination(req.query);
   const search = (req.query.search || "").trim();
   const filter = buildSearchFilter(search);
 
   const [items, total] = await Promise.all([
-    Product.find(filter)
+    RawMaterial.find(filter)
       .sort({ updatedAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit),
-    Product.countDocuments(filter),
+    RawMaterial.countDocuments(filter),
   ]);
 
   res.json({
@@ -47,19 +47,19 @@ async function listProducts(req, res) {
   });
 }
 
-async function getProduct(req, res, next) {
+async function getRawMaterial(req, res, next) {
   const { id } = req.params;
-  const product = await Product.findById(id);
-  if (!product) {
-    return next(createError(404, "Produk tidak ditemukan"));
+  const material = await RawMaterial.findById(id);
+  if (!material) {
+    return next(createError(404, "Bahan baku tidak ditemukan"));
   }
   return res.json({
     success: true,
-    data: product,
+    data: material,
   });
 }
 
-function normalizeProductPayload(payload) {
+function normalizePayload(payload) {
   const data = { ...payload };
   if (typeof data.code === "string") {
     data.code = data.code.trim().toUpperCase();
@@ -70,59 +70,59 @@ function normalizeProductPayload(payload) {
   return data;
 }
 
-async function createProduct(req, res, next) {
-  const payload = normalizeProductPayload(req.validatedBody);
+async function createRawMaterial(req, res, next) {
+  const payload = normalizePayload(req.validatedBody);
   try {
-    const product = await Product.create(payload);
+    const material = await RawMaterial.create(payload);
     res.status(201).json({
       success: true,
-      data: product,
+      data: material,
     });
   } catch (error) {
     if (error.code === 11000) {
-      return next(createError(409, "Kode produk sudah digunakan"));
+      return next(createError(409, "Kode bahan baku sudah digunakan"));
     }
     return next(error);
   }
 }
 
-async function updateProduct(req, res, next) {
+async function updateRawMaterial(req, res, next) {
   const { id } = req.params;
-  const payload = normalizeProductPayload(req.validatedBody);
+  const payload = normalizePayload(req.validatedBody);
   try {
-    const product = await Product.findByIdAndUpdate(id, payload, {
+    const material = await RawMaterial.findByIdAndUpdate(id, payload, {
       new: true,
       runValidators: true,
     });
-    if (!product) {
-      return next(createError(404, "Produk tidak ditemukan"));
+    if (!material) {
+      return next(createError(404, "Bahan baku tidak ditemukan"));
     }
     return res.json({
       success: true,
-      data: product,
+      data: material,
     });
   } catch (error) {
     if (error.code === 11000) {
-      return next(createError(409, "Kode produk sudah digunakan"));
+      return next(createError(409, "Kode bahan baku sudah digunakan"));
     }
     return next(error);
   }
 }
 
-async function deleteProduct(req, res, next) {
+async function deleteRawMaterial(req, res, next) {
   const { id } = req.params;
-  const product = await Product.findByIdAndDelete(id);
-  if (!product) {
-    return next(createError(404, "Produk tidak ditemukan"));
+  const material = await RawMaterial.findByIdAndDelete(id);
+  if (!material) {
+    return next(createError(404, "Bahan baku tidak ditemukan"));
   }
   return res.json({
     success: true,
-    message: "Produk berhasil dihapus",
+    message: "Bahan baku berhasil dihapus",
   });
 }
 
-async function listCategories(req, res) {
-  const categories = await Product.distinct("category");
+async function listRawCategories(req, res) {
+  const categories = await RawMaterial.distinct("category");
   const normalized = categories
     .filter(Boolean)
     .sort()
@@ -137,10 +137,10 @@ async function listCategories(req, res) {
 }
 
 module.exports = {
-  listProducts,
-  getProduct,
-  createProduct,
-  updateProduct,
-  deleteProduct,
-  listCategories,
+  listRawMaterials,
+  getRawMaterial,
+  createRawMaterial,
+  updateRawMaterial,
+  deleteRawMaterial,
+  listRawCategories,
 };

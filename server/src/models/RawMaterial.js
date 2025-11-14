@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 
-const productSchema = new mongoose.Schema(
+const rawMaterialSchema = new mongoose.Schema(
   {
     code: {
       type: String,
@@ -52,9 +52,10 @@ const productSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
+    collection: "bahan_baku",
   },
 );
 
-productSchema.index({ code: 1 }, { unique: true });
+rawMaterialSchema.index({ code: 1 }, { unique: true });
 
-module.exports = mongoose.model("Product", productSchema);
+module.exports = mongoose.model("RawMaterial", rawMaterialSchema);

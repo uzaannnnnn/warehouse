@@ -1,22 +1,27 @@
 import { Fragment, useEffect, useState } from "react";
 import {
-  FiBox,
   FiChevronDown,
   FiChevronUp,
   FiSearch,
   FiX,
+  FiRefreshCcw,
+  FiFileText,
 } from "react-icons/fi";
 import { motion as Motion, AnimatePresence } from "framer-motion";
 import Pagination from "../../../components/common/Pagination";
 import { fetchInvoices } from "../api/invoices";
+import EmptyState from "../../../components/common/EmptyState";
+import { WarehousePageShell } from "../../../components/templates/WarehousePageShell";
 
-export default function InvoiceHistoryPage() {
+export default function InvoiceHistoryPage({ segment = "finished" }) {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(1);
   const limit = 10;
   const [expandedId, setExpandedId] = useState(null);
+  const [filterType, setFilterType] = useState("all");
+  const [reloadKey, setReloadKey] = useState(0);
   const [invoices, setInvoices] = useState([]);
   const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
@@ -41,6 +46,7 @@ export default function InvoiceHistoryPage() {
           page,
           limit,
           search: debouncedSearch || undefined,
+          segment,
         });
         if (!active) return;
         setInvoices(Array.isArray(data?.items) ? data.items : []);
@@ -57,29 +63,55 @@ export default function InvoiceHistoryPage() {
     return () => {
       active = false;
     };
-  }, [page, limit, debouncedSearch]);
+  }, [page, limit, debouncedSearch, reloadKey]);
 
-  const pageRows = invoices;
+  const pageRows =
+    filterType === "all"
+      ? invoices
+      : invoices.filter((row) => row.type === filterType);
   const isSearching = Boolean(debouncedSearch);
   const startIndex = totalItems ? (page - 1) * limit + 1 : 0;
 
   return (
-    <div className="p-6 bg-gray-50 min-h-[90vh] rounded-2xl animate-fadeIn">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-        <h1 className="text-3xl font-extrabold text-gray-800 tracking-tight flex items-center gap-2 mb-7">
-          <FiBox className="text-red-500" /> History Invoice
-        </h1>
+    <WarehousePageShell
+      title="History Invoice"
+      icon={FiFileText}
+      headerRight={(
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setReloadKey((key) => key + 1)}
+            disabled={loading}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-md border bg-white hover:bg-gray-50 text-sm disabled:opacity-60 cursor-pointer"
+            title="Muat ulang data"
+          >
+            <FiRefreshCcw className={loading ? "animate-spin" : ""} /> Refresh
+          </button>
+        </div>
+      )}
+    >
+      {/* Filter bar ala Resi */}
+      <div className="flex flex-wrap justify-between items-center text-sm mb-4 gap-3">
+        <div className="flex gap-2 flex-wrap">
+          <select
+            className="border rounded-lg px-3 py-2"
+            value={filterType}
+            onChange={(e) => setFilterType(e.target.value)}
+          >
+            <option value="all">Semua Tipe</option>
+            <option value="in">Stok Masuk</option>
+            <option value="out">Stok Keluar</option>
+          </select>
+        </div>
 
-        <div className="relative flex-grow max-w-md">
+        <div className="relative">
+          <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             type="text"
-            placeholder="Cari invoice..."
-            className="w-full pl-10 pr-4 py-2 border rounded-lg"
+            placeholder="Cari invoice (nomor, tanggal)..."
+            className="w-72 pl-9 pr-10 py-2 border text-sm border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-red-400 focus:border-transparent"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
-          <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           {searchTerm && (
             <button
               type="button"
@@ -111,7 +143,7 @@ export default function InvoiceHistoryPage() {
           </svg>
           <p className="text-sm font-medium">Memuat data invoice...</p>
         </div>
-      ) : pageRows.length === 0 ? (
+      ) : totalItems === 0 ? (
         <EmptyState
           title={isSearching ? "Invoice tidak ditemukan" : "Belum ada invoice"}
           description={
@@ -123,17 +155,28 @@ export default function InvoiceHistoryPage() {
           buttonText={isSearching ? "Reset Pencarian" : undefined}
           onButtonClick={isSearching ? () => setSearchTerm("") : undefined}
         />
+      ) : pageRows.length === 0 ? (
+        <EmptyState
+          title="Invoice tidak ditemukan"
+          description="Coba ubah kata kunci atau reset filter untuk melihat semua data."
+          illustration="search"
+          buttonText="Reset Filter"
+          onButtonClick={() => {
+            setSearchTerm("");
+            setFilterType("all");
+          }}
+        />
       ) : (
         <div className="overflow-hidden rounded-xl border bg-white shadow-sm">
           <table className="min-w-full border-collapse text-sm text-gray-700">
             <thead className="bg-gray-100 text-xs uppercase text-gray-600">
               <tr>
-                <th className="w-12 p-3 text-center">No.</th>
+                <th className="p-3 text-center w-10" />
                 <th className="p-3 text-left">Nomor Invoice</th>
                 <th className="p-3 text-left">Tipe</th>
+                <th className="p-3 text-left">Produksi</th>
                 <th className="p-3 text-left">Tanggal</th>
-                <th className="p-3 text-right">Total Qty</th>
-                <th className="w-16 p-3 text-center" />
+                <th className="p-3 text-left">Total Qty</th>
               </tr>
             </thead>
             <tbody>
@@ -156,16 +199,35 @@ export default function InvoiceHistoryPage() {
                     <Fragment key={row._id}>
                       <Motion.tr
                         layout
+                        onClick={() =>
+                          setExpandedId((prev) => (prev === row._id ? null : row._id))
+                        }
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -10 }}
                         transition={{ duration: 0.25 }}
-                        className="border-b bg-white"
+                        className={`border-b cursor-pointer transition ${
+                          isExpanded
+                            ? "bg-red-50/60 shadow-[inset_0_2px_6px_rgba(0,0,0,0.05)]"
+                            : "bg-white hover:bg-gray-50"
+                        }`}
                       >
-                        <td className="p-3 text-center text-xs font-medium text-gray-600">
-                          {startIndex + index}
+                        <td className="p-3 text-center align-middle">
+                          <Motion.div
+                            animate={{ rotate: isExpanded ? 180 : 0 }}
+                            transition={{ duration: 0.25 }}
+                            className="inline-flex items-center justify-center w-7 h-7"
+                          >
+                            {isExpanded ? (
+                              <FiChevronUp className="w-4 h-4 text-gray-500" />
+                            ) : (
+                              <FiChevronDown className="w-4 h-4 text-gray-500" />
+                            )}
+                          </Motion.div>
                         </td>
-                        <td className="p-3 font-semibold">{row.invoiceNumber}</td>
+                        <td className="p-3 font-semibold text-gray-800">
+                          {row.invoiceNumber}
+                        </td>
                         <td className="p-3">
                           <span
                             className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold ${badgeColor}`}
@@ -173,22 +235,23 @@ export default function InvoiceHistoryPage() {
                             {typeLabel}
                           </span>
                         </td>
+                        <td className="p-3 text-xs">
+                          {row.segment === "raw" && row.type === "out" ? (
+                            row.productionClaimed ? (
+                              <span className="inline-flex rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-600">
+                                Sudah diklaim
+                              </span>
+                            ) : (
+                              <span className="inline-flex rounded-full bg-gray-100 px-2 py-1 text-[11px] font-medium text-gray-600">
+                                Belum diklaim
+                              </span>
+                            )
+                          ) : (
+                            <span className="text-[11px] text-gray-400">-</span>
+                          )}
+                        </td>
                         <td className="p-3 text-gray-600">{invoiceDate}</td>
-                        <td className="p-3 text-right font-semibold">
-                          {totalQty}
-                        </td>
-                        <td className="p-3 text-center">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setExpandedId((prev) => (prev === row._id ? null : row._id))
-                            }
-                            className="inline-flex items-center justify-center rounded-lg border px-3 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100"
-                            title={isExpanded ? "Tutup detail" : "Lihat detail"}
-                          >
-                            {isExpanded ? <FiChevronUp /> : <FiChevronDown />}
-                          </button>
-                        </td>
+                        <td className="p-3 text-left font-semibold">{totalQty}</td>
                       </Motion.tr>
                       <AnimatePresence>
                         {isExpanded && (
@@ -264,74 +327,9 @@ export default function InvoiceHistoryPage() {
           </div>
         </div>
       )}
-    </div>
+    </WarehousePageShell>
   );
 }
-
-function EmptyState({
-  title,
-  description,
-  buttonText,
-  onButtonClick,
-  illustration,
-}) {
-  const Illustrations = {
-    box: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        className="w-28 h-28 text-red-400 mb-4"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M20.25 7.5l-8.25-4.5-8.25 4.5M3 7.5v9l9 4.5 9-4.5v-9"
-        />
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M12 12l9-4.5M12 12L3 7.5"
-        />
-      </svg>
-    ),
-    search: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        className="w-28 h-28 text-gray-400 mb-4"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-        strokeWidth="1.5"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 100-15 7.5 7.5 0 000 15z"
-        />
-      </svg>
-    ),
-  };
-
-  return (
-    <div className="flex flex-col items-center justify-center py-20 text-center animate-fadeIn">
-      {Illustrations[illustration]}
-      <h2 className="text-xl font-semibold text-gray-700 mb-1">{title}</h2>
-      <p className="text-sm text-gray-500 mb-5">{description}</p>
-      {buttonText && onButtonClick && (
-        <button
-          onClick={onButtonClick}
-          className="px-5 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm shadow-md transition-all"
-        >
-          {buttonText}
-        </button>
-      )}
-    </div>
-  );
-}
-
 
 
 
