@@ -1,12 +1,13 @@
 import apiClient from "../../../lib/apiClient";
 
-export async function fetchInvoices({ page, limit, search, segment } = {}) {
+export async function fetchInvoices({ page, limit, search, segment, location } = {}) {
   const { data } = await apiClient.get("/warehouse/invoices", {
     params: {
       page,
       limit,
       search,
       segment,
+      location,
     },
   });
   return data?.data || { items: [], total: 0, pages: 1 };

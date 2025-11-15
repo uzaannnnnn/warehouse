@@ -13,6 +13,24 @@ import { fetchInvoices } from "../api/invoices";
 import EmptyState from "../../../components/common/EmptyState";
 import { WarehousePageShell } from "../../../components/templates/WarehousePageShell";
 
+// ⬇️ samain dengan ProductsPage
+const RAW_LOCATIONS = [
+  "01-BAHAN BAKU-KTP",
+  "02-BAHAN BAKU-DPK",
+  "03-BAHAN BAKU-BGR",
+];
+
+const PRODUCT_LOCATIONS = [
+  "04-ONLINE PACKING-KTP",
+  "05-ONLINE PACKING-DPK",
+  "06-ONLINE PACKING-BGR",
+];
+
+const STORAGE_KEYS = {
+  warehouseRaw: "warehouseCode_raw",
+  warehouseFinished: "warehouseCode_finished",
+};
+
 export default function InvoiceHistoryPage({ segment = "finished" }) {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -25,6 +43,31 @@ export default function InvoiceHistoryPage({ segment = "finished" }) {
   const [invoices, setInvoices] = useState([]);
   const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
+
+  const isRawSegment = segment === "raw";
+
+  const warehouseStorageKey = isRawSegment
+    ? STORAGE_KEYS.warehouseRaw
+    : STORAGE_KEYS.warehouseFinished;
+
+  const locationOptions = isRawSegment ? RAW_LOCATIONS : PRODUCT_LOCATIONS;
+
+  // lokasi ikut ProductsPage, tapi di sini hanya dibaca (bukan diubah)
+  const [warehouseCode, setWarehouseCode] = useState(() => {
+    if (typeof window === "undefined") {
+      return isRawSegment ? RAW_LOCATIONS[0] : PRODUCT_LOCATIONS[0];
+    }
+    const saved = window.localStorage.getItem(warehouseStorageKey);
+    if (saved && locationOptions.includes(saved)) return saved;
+    return locationOptions[0];
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const options = isRawSegment ? RAW_LOCATIONS : PRODUCT_LOCATIONS;
+    const saved = window.localStorage.getItem(warehouseStorageKey);
+    setWarehouseCode(saved && options.includes(saved) ? saved : options[0]);
+  }, [isRawSegment, warehouseStorageKey]);
 
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -47,6 +90,7 @@ export default function InvoiceHistoryPage({ segment = "finished" }) {
           limit,
           search: debouncedSearch || undefined,
           segment,
+          location: warehouseCode, // filter by lokasi
         });
         if (!active) return;
         setInvoices(Array.isArray(data?.items) ? data.items : []);
@@ -63,7 +107,7 @@ export default function InvoiceHistoryPage({ segment = "finished" }) {
     return () => {
       active = false;
     };
-  }, [page, limit, debouncedSearch, reloadKey, segment]);
+  }, [page, limit, debouncedSearch, reloadKey, segment, warehouseCode]);
 
   const pageRows =
     filterType === "all"
@@ -76,7 +120,26 @@ export default function InvoiceHistoryPage({ segment = "finished" }) {
     <WarehousePageShell
       title="History Invoice"
       icon={FiFileText}
-      headerRight={(
+      headerBelow={
+        <div className="flex flex-wrap items-center gap-2 text-xs text-gray-700">
+          <span className="font-medium">Lokasi:</span>
+          <select
+            value={warehouseCode}
+            disabled
+            className="rounded-lg border px-3 py-1 text-xs bg-gray-100 text-gray-600 cursor-not-allowed"
+          >
+            {locationOptions.map((loc) => (
+              <option key={loc} value={loc}>
+                {loc}
+              </option>
+            ))}
+          </select>
+          <span className="text-[11px] text-gray-400">
+            Lokasi mengikuti pilihan di halaman produk.
+          </span>
+        </div>
+      }
+      headerRight={
         <div className="flex items-center gap-3">
           <button
             onClick={() => setReloadKey((key) => key + 1)}
@@ -87,9 +150,9 @@ export default function InvoiceHistoryPage({ segment = "finished" }) {
             <FiRefreshCcw className={loading ? "animate-spin" : ""} /> Refresh
           </button>
         </div>
-      )}
+      }
     >
-      {/* Filter bar ala Resi */}
+      {/* Filter bar */}
       <div className="flex flex-wrap justify-between items-center text-sm mb-4 gap-3">
         <div className="flex gap-2 flex-wrap">
           <select
@@ -175,6 +238,7 @@ export default function InvoiceHistoryPage({ segment = "finished" }) {
                 <th className="p-3 text-left">Nomor Invoice</th>
                 <th className="p-3 text-left">Tipe</th>
                 <th className="p-3 text-left">Produksi</th>
+                <th className="p-3 text-left">Lokasi</th> {/* ⬅️ baru */}
                 <th className="p-3 text-left">Tanggal</th>
                 <th className="p-3 text-left">Total Qty</th>
               </tr>
@@ -193,14 +257,33 @@ export default function InvoiceHistoryPage({ segment = "finished" }) {
                     : "-";
                   const totalQty =
                     row.totalQuantity ??
-                    row.items?.reduce((sum, item) => sum + (item.quantity || 0), 0) ??
+                    row.items?.reduce(
+                      (sum, item) => sum + (item.quantity || 0),
+                      0,
+                    ) ??
                     0;
+                  const totalItemRows = row.items?.length ?? 0;
+                  const segmentLabel =
+                    row.segment === "raw"
+                      ? "Bahan Baku"
+                      : row.segment === "finished"
+                      ? "Produk Jadi"
+                      : row.segment || "-";
+                  const createdAt = row.createdAt
+                    ? new Date(row.createdAt).toLocaleString("id-ID")
+                    : null;
+                  const updatedAt = row.updatedAt
+                    ? new Date(row.updatedAt).toLocaleString("id-ID")
+                    : null;
+
                   return (
                     <Fragment key={row._id}>
                       <Motion.tr
                         layout
                         onClick={() =>
-                          setExpandedId((prev) => (prev === row._id ? null : row._id))
+                          setExpandedId((prev) =>
+                            prev === row._id ? null : row._id,
+                          )
                         }
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
@@ -250,9 +333,15 @@ export default function InvoiceHistoryPage({ segment = "finished" }) {
                             <span className="text-[11px] text-gray-400">-</span>
                           )}
                         </td>
+                        <td className="p-3 text-xs text-gray-600">
+                          {row.location || "-"}
+                        </td>
                         <td className="p-3 text-gray-600">{invoiceDate}</td>
-                        <td className="p-3 text-left font-semibold">{totalQty}</td>
+                        <td className="p-3 text-left font-semibold">
+                          {totalQty}
+                        </td>
                       </Motion.tr>
+
                       <AnimatePresence>
                         {isExpanded && (
                           <Motion.tr
@@ -262,42 +351,150 @@ export default function InvoiceHistoryPage({ segment = "finished" }) {
                             exit={{ opacity: 0, height: 0 }}
                             transition={{ duration: 0.3 }}
                           >
-                            <td colSpan={6} className="bg-gray-50 p-4">
+                            {/* ⬇️ colSpan disesuaikan: 7 kolom */}
+                            <td colSpan={7} className="bg-gray-50 p-4">
                               <Motion.div
                                 initial={{ opacity: 0, y: 10 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 exit={{ opacity: 0, y: -10 }}
                                 transition={{ duration: 0.25 }}
-                                className="rounded-lg border bg-white p-4"
+                                className="rounded-lg border bg-white p-4 space-y-4"
                               >
-                                <div className="mb-3 text-sm text-gray-500">Detail Produk</div>
-                                <table className="min-w-full text-xs text-gray-600">
-                                  <thead>
-                                    <tr className="bg-gray-100 text-[11px] uppercase text-gray-500">
-                                      <th className="px-3 py-2 text-left">Kode Produk</th>
-                                      <th className="px-3 py-2 text-left">Nama Produk</th>
-                                      <th className="px-3 py-2 text-right">Qty</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {row.items?.map((d) => (
-                                      <tr
-                                        key={`${row._id}-${d.productCode}`}
-                                        className="border-t last:border-b bg-white hover:bg-gray-50"
-                                      >
-                                        <td className="px-3 py-1 font-mono">
-                                          {d.productCode}
-                                        </td>
-                                        <td className="px-3 py-1">
-                                          {d.productName}
-                                        </td>
-                                        <td className="px-3 py-1 text-right">
-                                          {d.quantity}
-                                        </td>
+                                {/* SUMMARY META INVOICE */}
+                                <div className="grid gap-3 text-xs text-gray-600 md:grid-cols-3">
+                                  <div>
+                                    <div className="text-[11px] uppercase text-gray-400">
+                                      Nomor Invoice
+                                    </div>
+                                    <div className="font-semibold text-gray-800">
+                                      {row.invoiceNumber || "-"}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <div className="text-[11px] uppercase text-gray-400">
+                                      Tipe
+                                    </div>
+                                    <div className="font-medium">
+                                      {typeLabel}{" "}
+                                      <span className="text-[11px] text-gray-400">
+                                        ({row.type || "-"})
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <div className="text-[11px] uppercase text-gray-400">
+                                      Segment
+                                    </div>
+                                    <div className="font-medium">
+                                      {segmentLabel}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <div className="text-[11px] uppercase text-gray-400">
+                                      Lokasi
+                                    </div>
+                                    <div className="font-medium">
+                                      {row.location || "-"}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <div className="text-[11px] uppercase text-gray-400">
+                                      Tanggal
+                                    </div>
+                                    <div className="font-medium">
+                                      {invoiceDate}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <div className="text-[11px] uppercase text-gray-400">
+                                      Ringkasan Qty
+                                    </div>
+                                    <div className="font-medium">
+                                      {totalQty}{" "}
+                                      <span className="text-[11px] text-gray-400">
+                                        dari {totalItemRows} baris produk
+                                      </span>
+                                    </div>
+                                  </div>
+                                  {createdAt && (
+                                    <div>
+                                      <div className="text-[11px] uppercase text-gray-400">
+                                        Dibuat
+                                      </div>
+                                      <div className="font-medium">
+                                        {createdAt}
+                                      </div>
+                                    </div>
+                                  )}
+                                  {updatedAt && (
+                                    <div>
+                                      <div className="text-[11px] uppercase text-gray-400">
+                                        Diupdate
+                                      </div>
+                                      <div className="font-medium">
+                                        {updatedAt}
+                                      </div>
+                                    </div>
+                                  )}
+                                  <div>
+                                    <div className="text-[11px] uppercase text-gray-400">
+                                      ID Internal
+                                    </div>
+                                    <div className="font-mono text-[11px] text-gray-500 break-all">
+                                      {row._id}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* DETAIL PRODUK */}
+                                <div className="mt-2">
+                                  <div className="mb-3 text-sm text-gray-500 font-medium">
+                                    Detail Produk
+                                  </div>
+                                  <table className="min-w-full text-xs text-gray-600">
+                                    <thead>
+                                      <tr className="bg-gray-100 text-[11px] uppercase text-gray-500">
+                                        <th className="px-3 py-2 text-left">
+                                          Kode Produk
+                                        </th>
+                                        <th className="px-3 py-2 text-left">
+                                          Nama Produk
+                                        </th>
+                                        <th className="px-3 py-2 text-right">
+                                          Qty
+                                        </th>
                                       </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
+                                    </thead>
+                                    <tbody>
+                                      {row.items?.map((d) => (
+                                        <tr
+                                          key={`${row._id}-${d.productCode}`}
+                                          className="border-t last:border-b bg-white hover:bg-gray-50"
+                                        >
+                                          <td className="px-3 py-1 font-mono">
+                                            {d.productCode}
+                                          </td>
+                                          <td className="px-3 py-1">
+                                            {d.productName || "-"}
+                                          </td>
+                                          <td className="px-3 py-1 text-right">
+                                            {d.quantity}
+                                          </td>
+                                        </tr>
+                                      ))}
+                                      {(!row.items || row.items.length === 0) && (
+                                        <tr>
+                                          <td
+                                            colSpan={3}
+                                            className="px-3 py-3 text-center text-gray-400"
+                                          >
+                                            Tidak ada detail produk.
+                                          </td>
+                                        </tr>
+                                      )}
+                                    </tbody>
+                                  </table>
+                                </div>
                               </Motion.div>
                             </td>
                           </Motion.tr>
@@ -314,8 +511,7 @@ export default function InvoiceHistoryPage({ segment = "finished" }) {
       {!loading && totalPages > 1 && (
         <div className="mt-6 flex flex-col md:flex-row items-center justify-between gap-3">
           <div className="text-sm text-gray-600">
-            Menampilkan{" "}
-            {startIndex} -{" "}
+            Menampilkan {startIndex} -{" "}
             {Math.min(page * limit, totalItems)} dari {totalItems} invoice
           </div>
           <div className="flex items-center gap-3">
@@ -330,11 +526,3 @@ export default function InvoiceHistoryPage({ segment = "finished" }) {
     </WarehousePageShell>
   );
 }
-
-
-
-
-
-
-
-
