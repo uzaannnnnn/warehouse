@@ -52,6 +52,26 @@ export default function Sidebar() {
         },
       ],
     },
+    {
+      title: "SpeedShop",
+      items: [
+        {
+          label: "SpeedShop",
+          path: "/warehouse/speedshop",
+          icon: <FiBox />,
+        },
+        {
+          label: "Produk",
+          path: "/warehouse/speedshop-products",
+          icon: <FiBox />,
+        },
+        {
+          label: "History Invoice",
+          path: "/warehouse/speedshop-invoices-history",
+          icon: <FiFileText />,
+        },
+      ],
+    },
   ];
 
   return (

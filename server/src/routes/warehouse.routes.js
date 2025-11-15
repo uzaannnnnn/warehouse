@@ -30,11 +30,24 @@ const {
   getProductionBuffer,
   saveProductionBuffer,
 } = require("../controllers/productionBuffer.controller");
+const {
+  listSpeedshopOrders,
+  getSpeedshopOrder,
+  createSpeedshopOrder,
+  updateSpeedshopOrder,
+  updateSpeedshopOrderStatus,
+  listSpeedshopServices,
+} = require("../controllers/speedshopOrder.controller");
 const auth = require("../middleware/auth");
 const validateRequest = require("../middleware/validateRequest");
 const { createProductSchema, updateProductSchema } = require("../validations/product.validation");
 const { createInvoiceSchema } = require("../validations/invoice.validation");
 const { createProductionSchema } = require("../validations/production.validation");
+const {
+  createSpeedshopOrderSchema,
+  updateSpeedshopOrderSchema,
+  updateSpeedshopStatusSchema,
+} = require("../validations/speedshopOrder.validation");
 
 const router = express.Router();
 
@@ -67,5 +80,24 @@ router.get("/productions/:id", getProduction);
 
 router.get("/production-buffer", getProductionBuffer);
 router.post("/production-buffer", saveProductionBuffer);
+
+router.get("/speedshop/orders", listSpeedshopOrders);
+router.post(
+  "/speedshop/orders",
+  validateRequest(createSpeedshopOrderSchema),
+  createSpeedshopOrder,
+);
+router.get("/speedshop/orders/:id", getSpeedshopOrder);
+router.put(
+  "/speedshop/orders/:id",
+  validateRequest(updateSpeedshopOrderSchema),
+  updateSpeedshopOrder,
+);
+router.patch(
+  "/speedshop/orders/:id/status",
+  validateRequest(updateSpeedshopStatusSchema),
+  updateSpeedshopOrderStatus,
+);
+router.get("/speedshop/services", listSpeedshopServices);
 
 module.exports = router;

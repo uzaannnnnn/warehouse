@@ -30,18 +30,10 @@ import { createInvoiceRecord } from "../api/invoices";
 import { playSuccessSound } from "../../../utils/sound";
 import EmptyState from "../../../components/common/EmptyState";
 import { WarehousePageShell } from "../../../components/templates/WarehousePageShell";
-
-const RAW_LOCATIONS = [
-  "01-BAHAN BAKU-KTP",
-  "02-BAHAN BAKU-DPK",
-  "03-BAHAN BAKU-BGR",
-];
-
-const PRODUCT_LOCATIONS = [
-  "04-ONLINE PACKING-KTP",
-  "05-ONLINE PACKING-DPK",
-  "06-ONLINE PACKING-BGR",
-];
+import {
+  RAW_LOCATIONS,
+  PRODUCT_LOCATIONS,
+} from "../../../constants/warehouseLocations";
 
 const STORAGE_KEYS = {
   warehouseRaw: "warehouseCode_raw",
@@ -50,9 +42,20 @@ const STORAGE_KEYS = {
   searchFinished: "searchTerm_finished",
 };
 
-
-export default function ProductsPage({ mode = "finished" }) {
+export default function ProductsPage({
+  mode = "finished",
+  locationOptionsOverride,
+  locationStorageKeyOverride,
+  searchStorageKeyOverride,
+  pageTitle = "Daftar Produk",
+}) {
   const isRawMode = mode === "raw";
+
+  const defaultLocationOptions = isRawMode ? RAW_LOCATIONS : PRODUCT_LOCATIONS;
+  const locationOptions =
+    Array.isArray(locationOptionsOverride) && locationOptionsOverride.length
+      ? locationOptionsOverride
+      : defaultLocationOptions;
 
   const api = useMemo(
     () =>
@@ -79,22 +82,21 @@ export default function ProductsPage({ mode = "finished" }) {
 
   const [allProducts, setAllProducts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const warehouseStorageKey = isRawMode
-    ? STORAGE_KEYS.warehouseRaw
-    : STORAGE_KEYS.warehouseFinished;
+  const warehouseStorageKey =
+    locationStorageKeyOverride ||
+    (isRawMode ? STORAGE_KEYS.warehouseRaw : STORAGE_KEYS.warehouseFinished);
 
-  const searchStorageKey = isRawMode
-    ? STORAGE_KEYS.searchRaw
-    : STORAGE_KEYS.searchFinished;
+  const searchStorageKey =
+    searchStorageKeyOverride ||
+    (isRawMode ? STORAGE_KEYS.searchRaw : STORAGE_KEYS.searchFinished);
 
   const [warehouseCode, setWarehouseCode] = useState(() => {
     if (typeof window === "undefined") {
-      return isRawMode ? RAW_LOCATIONS[0] : PRODUCT_LOCATIONS[0];
+      return locationOptions[0];
     }
-    const options = isRawMode ? RAW_LOCATIONS : PRODUCT_LOCATIONS;
     const saved = window.localStorage.getItem(warehouseStorageKey);
-    if (saved && options.includes(saved)) return saved;
-    return options[0];
+    if (saved && locationOptions.includes(saved)) return saved;
+    return locationOptions[0];
   });
 
   const [searchTerm, setSearchTerm] = useState(() => {
@@ -162,10 +164,13 @@ export default function ProductsPage({ mode = "finished" }) {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const options = isRawMode ? RAW_LOCATIONS : PRODUCT_LOCATIONS;
     const saved = window.localStorage.getItem(warehouseStorageKey);
-    setWarehouseCode(saved && options.includes(saved) ? saved : options[0]);
-  }, [isRawMode, warehouseStorageKey]);
+    setWarehouseCode(
+      saved && locationOptions.includes(saved)
+        ? saved
+        : locationOptions[0],
+    );
+  }, [warehouseStorageKey, locationOptions]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -371,11 +376,9 @@ export default function ProductsPage({ mode = "finished" }) {
     setIsStockOutOpen(true);
   };
 
-  const locationOptions = isRawMode ? RAW_LOCATIONS : PRODUCT_LOCATIONS;
-
   return (
     <WarehousePageShell
-      title="Daftar Produk"
+      title={pageTitle}
       icon={FiBox}
       headerBelow={
         <div className="flex flex-wrap items-center gap-2 text-xs text-gray-700">

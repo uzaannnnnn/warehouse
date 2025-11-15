@@ -12,26 +12,22 @@ import Pagination from "../../../components/common/Pagination";
 import { fetchInvoices } from "../api/invoices";
 import EmptyState from "../../../components/common/EmptyState";
 import { WarehousePageShell } from "../../../components/templates/WarehousePageShell";
-
-// ⬇️ samain dengan ProductsPage
-const RAW_LOCATIONS = [
-  "01-BAHAN BAKU-KTP",
-  "02-BAHAN BAKU-DPK",
-  "03-BAHAN BAKU-BGR",
-];
-
-const PRODUCT_LOCATIONS = [
-  "04-ONLINE PACKING-KTP",
-  "05-ONLINE PACKING-DPK",
-  "06-ONLINE PACKING-BGR",
-];
+import {
+  RAW_LOCATIONS,
+  PRODUCT_LOCATIONS,
+} from "../../../constants/warehouseLocations";
 
 const STORAGE_KEYS = {
   warehouseRaw: "warehouseCode_raw",
   warehouseFinished: "warehouseCode_finished",
 };
 
-export default function InvoiceHistoryPage({ segment = "finished" }) {
+export default function InvoiceHistoryPage({
+  segment = "finished",
+  locationOptionsOverride,
+  locationStorageKeyOverride,
+  pageTitle = "History Invoice",
+}) {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -46,16 +42,24 @@ export default function InvoiceHistoryPage({ segment = "finished" }) {
 
   const isRawSegment = segment === "raw";
 
-  const warehouseStorageKey = isRawSegment
-    ? STORAGE_KEYS.warehouseRaw
-    : STORAGE_KEYS.warehouseFinished;
+  const defaultLocationOptions = isRawSegment
+    ? RAW_LOCATIONS
+    : PRODUCT_LOCATIONS;
+  const locationOptions =
+    Array.isArray(locationOptionsOverride) && locationOptionsOverride.length
+      ? locationOptionsOverride
+      : defaultLocationOptions;
 
-  const locationOptions = isRawSegment ? RAW_LOCATIONS : PRODUCT_LOCATIONS;
+  const warehouseStorageKey =
+    locationStorageKeyOverride ||
+    (isRawSegment
+      ? STORAGE_KEYS.warehouseRaw
+      : STORAGE_KEYS.warehouseFinished);
 
   // lokasi ikut ProductsPage, tapi di sini hanya dibaca (bukan diubah)
   const [warehouseCode, setWarehouseCode] = useState(() => {
     if (typeof window === "undefined") {
-      return isRawSegment ? RAW_LOCATIONS[0] : PRODUCT_LOCATIONS[0];
+      return locationOptions[0];
     }
     const saved = window.localStorage.getItem(warehouseStorageKey);
     if (saved && locationOptions.includes(saved)) return saved;
@@ -64,10 +68,13 @@ export default function InvoiceHistoryPage({ segment = "finished" }) {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const options = isRawSegment ? RAW_LOCATIONS : PRODUCT_LOCATIONS;
     const saved = window.localStorage.getItem(warehouseStorageKey);
-    setWarehouseCode(saved && options.includes(saved) ? saved : options[0]);
-  }, [isRawSegment, warehouseStorageKey]);
+    setWarehouseCode(
+      saved && locationOptions.includes(saved)
+        ? saved
+        : locationOptions[0],
+    );
+  }, [warehouseStorageKey, locationOptions]);
 
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -118,7 +125,7 @@ export default function InvoiceHistoryPage({ segment = "finished" }) {
 
   return (
     <WarehousePageShell
-      title="History Invoice"
+      title={pageTitle}
       icon={FiFileText}
       headerBelow={
         <div className="flex flex-wrap items-center gap-2 text-xs text-gray-700">
