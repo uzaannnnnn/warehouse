@@ -1,11 +1,12 @@
 import apiClient from "../../../lib/apiClient";
 
-export async function fetchProductions({ page, limit, search } = {}) {
+export async function fetchProductions({ page, limit, search, location } = {}) {
   const { data } = await apiClient.get("/warehouse/productions", {
     params: {
       page,
       limit,
       search,
+      location,
     },
   });
   return data?.data || { items: [], total: 0, pages: 1 };
@@ -29,13 +30,17 @@ export async function createProductionRecord(payload) {
   return data?.data;
 }
 
-export async function fetchProductionBuffer() {
-  const { data } = await apiClient.get("/warehouse/production-buffer");
-  return data?.data || [];
+export async function fetchProductionBuffer(location) {
+  const { data } = await apiClient.get("/warehouse/production-buffer", {
+    params: { location },
+  });
+  return data?.data || { items: [], invoiceNumber: "" };
 }
 
-export async function saveProductionBuffer(items) {
+export async function saveProductionBuffer(items, location, invoiceNumber) {
   const body = {
+    location,
+    invoiceNumber,
     items: items?.map((item) => ({
       productCode: item.productCode || item.kode,
       productName: item.productName || item.name,
@@ -43,5 +48,5 @@ export async function saveProductionBuffer(items) {
     })),
   };
   const { data } = await apiClient.post("/warehouse/production-buffer", body);
-  return data?.data || [];
+  return data?.data || { items: [], invoiceNumber: "" };
 }

@@ -3,6 +3,7 @@ const Production = require("../models/Production");
 const RawMaterial = require("../models/RawMaterial");
 const Product = require("../models/Product");
 const Invoice = require("../models/Invoice");
+const { normalizeLocation, cloneStocks, sumStocks } = require("../utils/stockUtils");
 
 function parsePagination(query) {
   const page = Math.max(1, Number(query.page) || 1);
@@ -20,6 +21,11 @@ async function listProductions(req, res) {
       { productionNumber: { $regex: search, $options: "i" } },
       { "items.productCode": { $regex: search, $options: "i" } },
     ];
+  }
+
+  const location = (req.query.location || "").trim();
+  if (location) {
+    filter.location = location;
   }
 
   const [items, total] = await Promise.all([
@@ -72,6 +78,9 @@ async function createProduction(req, res, next) {
       ),
     );
   }
+
+  const normalizedLocation = normalizeLocation(invoice.location);
+  const locationKey = normalizedLocation || "GLOBAL";
 
   const availableByCode = new Map();
   invoice.items.forEach((item) => {
@@ -130,7 +139,24 @@ async function createProduction(req, res, next) {
     }
 
     const quantity = item.quantity;
-    product.stock += quantity;
+
+    const stocks = cloneStocks(product.stocks);
+    let entry = stocks.find((stockEntry) => stockEntry.location === locationKey);
+    const currentQty =
+      entry && typeof entry.quantity === "number" && Number.isFinite(entry.quantity)
+        ? entry.quantity
+        : 0;
+    const nextQty = currentQty + quantity;
+
+    if (!entry) {
+      entry = { location: locationKey, quantity: nextQty };
+      stocks.push(entry);
+    } else {
+      entry.quantity = nextQty;
+    }
+
+    product.stocks = stocks;
+    product.stock = sumStocks(stocks);
     // eslint-disable-next-line no-await-in-loop
     await product.save();
 
@@ -151,6 +177,7 @@ async function createProduction(req, res, next) {
     const production = await Production.create({
       invoiceNumber,
       productionNumber,
+      location: normalizedLocation || undefined,
       date: productionDate,
       items,
       totalOutQuantity,

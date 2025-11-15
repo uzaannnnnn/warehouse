@@ -39,6 +39,10 @@ const productionSchema = new mongoose.Schema(
       unique: true,
       trim: true,
     },
+    location: {
+      type: String,
+      trim: true,
+    },
     date: {
       type: Date,
       default: Date.now,
@@ -67,5 +71,6 @@ const productionSchema = new mongoose.Schema(
 
 productionSchema.index({ productionNumber: 1 }, { unique: true });
 productionSchema.index({ invoiceNumber: 1 });
+productionSchema.index({ location: 1, date: -1 });
 
 module.exports = mongoose.model("Production", productionSchema);

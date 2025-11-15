@@ -27,7 +27,14 @@ const productionBufferSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
-      unique: true,
+    },
+    location: {
+      type: String,
+      trim: true,
+    },
+    invoiceNumber: {
+      type: String,
+      trim: true,
     },
     items: {
       type: [productionBufferItemSchema],
@@ -39,7 +46,6 @@ const productionBufferSchema = new mongoose.Schema(
   },
 );
 
-productionBufferSchema.index({ user: 1 }, { unique: true });
+productionBufferSchema.index({ user: 1, location: 1 }, { unique: true });
 
 module.exports = mongoose.model("ProductionBuffer", productionBufferSchema);
-

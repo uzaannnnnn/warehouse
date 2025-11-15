@@ -6,10 +6,19 @@ async function getProductionBuffer(req, res) {
     return res.status(401).json({ success: false, message: "Unauthorized" });
   }
 
-  const buffer = await ProductionBuffer.findOne({ user: userId }).lean();
+  const rawLocation = (req.query.location || "").trim();
+  const query = { user: userId };
+  if (rawLocation) {
+    query.location = rawLocation;
+  }
+
+  const buffer = await ProductionBuffer.findOne(query).lean();
   res.json({
     success: true,
-    data: buffer?.items || [],
+    data: {
+      items: buffer?.items || [],
+      invoiceNumber: buffer?.invoiceNumber || "",
+    },
   });
 }
 
@@ -19,7 +28,15 @@ async function saveProductionBuffer(req, res) {
     return res.status(401).json({ success: false, message: "Unauthorized" });
   }
 
+  const rawLocation = (req.body.location || "").trim();
+  if (!rawLocation) {
+    return res
+      .status(400)
+      .json({ success: false, message: "Lokasi bahan baku wajib diisi" });
+  }
+
   const rawItems = Array.isArray(req.body.items) ? req.body.items : [];
+  const invoiceNumberRaw = (req.body.invoiceNumber || "").trim().toUpperCase();
 
   const normalized = rawItems
     .map((item) => {
@@ -44,15 +61,26 @@ async function saveProductionBuffer(req, res) {
     })
     .filter(Boolean);
 
-  const buffer = await ProductionBuffer.findOneAndUpdate(
-    { user: userId },
-    { user: userId, items: normalized },
-    { upsert: true, new: true },
-  );
+  const updatePayload = {
+    user: userId,
+    location: rawLocation,
+    items: normalized,
+  };
+  if (invoiceNumberRaw) {
+    updatePayload.invoiceNumber = invoiceNumberRaw;
+  }
+
+  const buffer = await ProductionBuffer.findOneAndUpdate({ user: userId, location: rawLocation }, updatePayload, {
+    upsert: true,
+    new: true,
+  });
 
   res.json({
     success: true,
-    data: buffer.items || [],
+    data: {
+      items: buffer.items || [],
+      invoiceNumber: buffer.invoiceNumber || "",
+    },
   });
 }
 
@@ -60,4 +88,3 @@ module.exports = {
   getProductionBuffer,
   saveProductionBuffer,
 };
-

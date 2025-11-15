@@ -7,6 +7,7 @@ export default function RawFromInvoiceModal({
   isOpen,
   onClose,
   onLoaded,
+  rawLocation,
 }) {
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [loading, setLoading] = useState(false);
@@ -26,6 +27,8 @@ export default function RawFromInvoiceModal({
         page: 1,
         limit: 10,
         search: inv,
+        segment: "raw",
+        location: rawLocation,
       });
       const items = Array.isArray(data?.items) ? data.items : [];
       const matched = items.find(
