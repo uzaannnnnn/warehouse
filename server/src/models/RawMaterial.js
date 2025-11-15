@@ -36,6 +36,34 @@ const rawMaterialSchema = new mongoose.Schema(
         },
       },
     ],
+    names: [
+      {
+        location: {
+          type: String,
+          trim: true,
+        },
+        value: {
+          type: String,
+          trim: true,
+        },
+      },
+    ],
+    prices: [
+      {
+        location: {
+          type: String,
+          trim: true,
+        },
+        purchasePrice: {
+          type: Number,
+          min: 0,
+        },
+        sellingPrice: {
+          type: Number,
+          min: 0,
+        },
+      },
+    ],
     purchasePrice: {
       type: Number,
       default: 0,
@@ -55,7 +83,5 @@ const rawMaterialSchema = new mongoose.Schema(
     collection: "bahan_baku",
   },
 );
-
-rawMaterialSchema.index({ code: 1 }, { unique: true });
 
 module.exports = mongoose.model("RawMaterial", rawMaterialSchema);

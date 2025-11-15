@@ -13,6 +13,10 @@ const baseProductSchema = z.object({
     .trim()
     .optional()
     .transform((val) => (val ? val : undefined)),
+  location: z
+    .string()
+    .optional()
+    .transform((val) => (val ? val.trim() : undefined)),
   stock: z.number().int().min(0).optional(),
   purchasePrice: z.number().min(0).optional(),
   sellingPrice: z.number().min(0).optional(),

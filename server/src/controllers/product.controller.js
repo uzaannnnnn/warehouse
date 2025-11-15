@@ -1,5 +1,12 @@
 const createError = require("http-errors");
 const Product = require("../models/Product");
+const {
+  setLocationStock,
+  setLocationPricing,
+  setLocationName,
+  getPricingForLocation,
+  getNameForLocation,
+} = require("../utils/stockUtils");
 
 function parsePagination(query) {
   const page = Math.max(1, Number(query.page) || 1);
@@ -18,14 +25,36 @@ function buildSearchFilter(search) {
   };
 }
 
-function escapeRegex(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function formatProductResponse(product, location) {
+  if (!product) {
+    return product;
+  }
+  const payload = product.toObject ? product.toObject() : product;
+  if (!location) {
+    return payload;
+  }
+  const pricing = getPricingForLocation(payload, location);
+  if (pricing.purchasePrice !== undefined) {
+    payload.purchasePrice = pricing.purchasePrice;
+  }
+  if (pricing.sellingPrice !== undefined) {
+    payload.sellingPrice = pricing.sellingPrice;
+  }
+  const locationName = getNameForLocation(payload, location);
+  if (locationName) {
+    payload.name = locationName;
+  }
+  return payload;
 }
 
 async function listProducts(req, res) {
   const { page, limit } = parsePagination(req.query);
   const search = (req.query.search || "").trim();
   const filter = buildSearchFilter(search);
+  const location = (req.query.location || "").trim();
+  if (location) {
+    filter["stocks.location"] = location;
+  }
 
   const [items, total] = await Promise.all([
     Product.find(filter)
@@ -34,11 +63,12 @@ async function listProducts(req, res) {
       .limit(limit),
     Product.countDocuments(filter),
   ]);
+  const normalizedItems = items.map((item) => formatProductResponse(item, location));
 
   res.json({
     success: true,
     data: {
-      items,
+      items: normalizedItems,
       total,
       pages: Math.max(1, Math.ceil(total / limit)),
       page,
@@ -72,11 +102,50 @@ function normalizeProductPayload(payload) {
 
 async function createProduct(req, res, next) {
   const payload = normalizeProductPayload(req.validatedBody);
+  const location = (req.body.location || "").trim();
+  const hasStockValue = typeof payload.stock === "number" && Number.isFinite(payload.stock);
+  const stockValue = hasStockValue ? payload.stock : 0;
+  const hasPurchase =
+    typeof payload.purchasePrice === "number" && Number.isFinite(payload.purchasePrice);
+  const hasSelling =
+    typeof payload.sellingPrice === "number" && Number.isFinite(payload.sellingPrice);
   try {
-    const product = await Product.create(payload);
-    res.status(201).json({
+    let product = await Product.findOne({ code: payload.code });
+    if (product) {
+      if (!location) {
+        return next(createError(409, "Kode produk sudah digunakan"));
+      }
+      product.set(payload);
+      if (hasStockValue) {
+        setLocationStock(product, location, stockValue);
+      }
+      if (hasPurchase || hasSelling) {
+        setLocationPricing(product, location, {
+          purchasePrice: hasPurchase ? payload.purchasePrice : undefined,
+          sellingPrice: hasSelling ? payload.sellingPrice : undefined,
+        });
+      }
+      await product.save();
+      return res.json({
+        success: true,
+        data: formatProductResponse(product, location),
+      });
+    }
+
+    if (location) {
+      setLocationStock(payload, location, stockValue);
+      if (hasPurchase || hasSelling) {
+        setLocationPricing(payload, location, {
+          purchasePrice: hasPurchase ? payload.purchasePrice : undefined,
+          sellingPrice: hasSelling ? payload.sellingPrice : undefined,
+        });
+      }
+    }
+
+    product = await Product.create(payload);
+    return res.status(201).json({
       success: true,
-      data: product,
+      data: formatProductResponse(product, location),
     });
   } catch (error) {
     if (error.code === 11000) {
@@ -89,17 +158,31 @@ async function createProduct(req, res, next) {
 async function updateProduct(req, res, next) {
   const { id } = req.params;
   const payload = normalizeProductPayload(req.validatedBody);
+  const location = (req.body.location || "").trim();
+  const hasStockValue = typeof payload.stock === "number" && Number.isFinite(payload.stock);
+  const hasPurchase =
+    typeof payload.purchasePrice === "number" && Number.isFinite(payload.purchasePrice);
+  const hasSelling =
+    typeof payload.sellingPrice === "number" && Number.isFinite(payload.sellingPrice);
   try {
-    const product = await Product.findByIdAndUpdate(id, payload, {
-      new: true,
-      runValidators: true,
-    });
+    const product = await Product.findById(id);
     if (!product) {
       return next(createError(404, "Produk tidak ditemukan"));
     }
+    product.set(payload);
+    if (location && hasStockValue) {
+      setLocationStock(product, location, payload.stock);
+    }
+    if (location && (hasPurchase || hasSelling)) {
+      setLocationPricing(product, location, {
+        purchasePrice: hasPurchase ? payload.purchasePrice : undefined,
+        sellingPrice: hasSelling ? payload.sellingPrice : undefined,
+      });
+    }
+    await product.save();
     return res.json({
       success: true,
-      data: product,
+      data: formatProductResponse(product, location),
     });
   } catch (error) {
     if (error.code === 11000) {

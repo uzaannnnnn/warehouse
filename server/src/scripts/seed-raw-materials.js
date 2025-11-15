@@ -4,6 +4,9 @@ const { parse } = require("csv-parse");
 const connectDatabase = require("../config/database");
 const RawMaterial = require("../models/RawMaterial");
 const logger = require("../config/logger");
+const { setLocationStock, setLocationPricing, sumStocks } = require("../utils/stockUtils");
+
+const DEFAULT_RAW_LOCATION = process.env.SEED_RAW_LOCATION || "01-BAHAN BAKU-KTP";
 
 function parseArgs() {
   return process.argv.slice(2).reduce((acc, arg) => {
@@ -46,6 +49,24 @@ function loadCsv(filePath) {
   });
 }
 
+function resolveLocationArg(rawValue, fallback) {
+  if (typeof rawValue === "string") {
+    const trimmed = rawValue.trim();
+    if (!trimmed.length) {
+      return null;
+    }
+    const lowered = trimmed.toLowerCase();
+    if (lowered === "none" || lowered === "false") {
+      return null;
+    }
+    return trimmed;
+  }
+  if (rawValue === false) {
+    return null;
+  }
+  return fallback;
+}
+
 function mapRow(row) {
   const clean = (value) => (value ? String(value).trim() : "");
   const sourceRow = parseInteger(row["No."]);
@@ -53,31 +74,47 @@ function mapRow(row) {
   if (sourceRow) {
     metadata.sourceRow = sourceRow;
   }
+  const stock = parseInteger(row["Jumlah"]);
   return {
     code: clean(row["Kode Produk"]).toUpperCase(),
     name: clean(row["Nama Produk"]),
     category: clean(row["Kategori"]),
-    stock: parseInteger(row["Jumlah"]),
+    stock,
     purchasePrice: parseCurrency(row["Harga Pembelian (Rp)"]),
     sellingPrice: parseCurrency(row["Harga Jual (Rp)"]),
     metadata: Object.keys(metadata).length ? metadata : undefined,
   };
 }
 
-async function upsertRawMaterial(payload) {
+async function upsertRawMaterial(payload, { location }) {
   if (!payload.code) {
     return "skipped";
   }
 
-  const existing = await RawMaterial.findOne({ code: payload.code });
-  if (existing) {
-    existing.set(payload);
-    await existing.save();
-    return "updated";
+  let status = "created";
+  let material = await RawMaterial.findOne({ code: payload.code });
+  if (material) {
+    material.set(payload);
+    status = "updated";
+  } else {
+    material = new RawMaterial(payload);
   }
 
-  await RawMaterial.create(payload);
-  return "created";
+  if (location) {
+    const locationStock = typeof payload.stock === "number" ? payload.stock : 0;
+    setLocationStock(material, location, locationStock);
+    setLocationPricing(material, location, {
+      purchasePrice:
+        typeof payload.purchasePrice === "number" ? payload.purchasePrice : undefined,
+      sellingPrice:
+        typeof payload.sellingPrice === "number" ? payload.sellingPrice : undefined,
+    });
+  } else if (Array.isArray(material.stocks) && material.stocks.length) {
+    material.stock = sumStocks(material.stocks);
+  }
+
+  await material.save();
+  return status;
 }
 
 async function run() {
@@ -98,6 +135,8 @@ async function run() {
 
   await connectDatabase();
 
+  const location = resolveLocationArg(args.location, DEFAULT_RAW_LOCATION);
+
   const stats = {
     created: 0,
     updated: 0,
@@ -107,11 +146,11 @@ async function run() {
   for (const row of rows) {
     const payload = mapRow(row);
     // eslint-disable-next-line no-await-in-loop
-    const result = await upsertRawMaterial(payload);
+    const result = await upsertRawMaterial(payload, { location });
     stats[result] += 1;
   }
 
-  logger.info({ stats }, "Raw materials seed completed");
+  logger.info({ stats, location }, "Raw materials seed completed");
   process.exit(0);
 }
 

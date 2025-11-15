@@ -36,6 +36,34 @@ const productSchema = new mongoose.Schema(
         },
       },
     ],
+    names: [
+      {
+        location: {
+          type: String,
+          trim: true,
+        },
+        value: {
+          type: String,
+          trim: true,
+        },
+      },
+    ],
+    prices: [
+      {
+        location: {
+          type: String,
+          trim: true,
+        },
+        purchasePrice: {
+          type: Number,
+          min: 0,
+        },
+        sellingPrice: {
+          type: Number,
+          min: 0,
+        },
+      },
+    ],
     purchasePrice: {
       type: Number,
       default: 0,

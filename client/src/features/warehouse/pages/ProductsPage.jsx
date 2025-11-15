@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   FiBox,
   FiEdit2,
@@ -46,19 +46,23 @@ const PRODUCT_LOCATIONS = [
 export default function ProductsPage({ mode = "finished" }) {
   const isRawMode = mode === "raw";
 
-  const api = isRawMode
-    ? {
-        fetchCategories: fetchRawCategories,
-        fetchPaged: fetchRawProductsPaged,
-        upsert: upsertRawProduct,
-        deleteById: deleteRawProductById,
-      }
-    : {
-        fetchCategories: fetchProductCategories,
-        fetchPaged: fetchProductsPaged,
-        upsert: upsertProduct,
-        deleteById: deleteProductById,
-      };
+  const api = useMemo(
+    () =>
+      isRawMode
+        ? {
+            fetchCategories: fetchRawCategories,
+            fetchPaged: fetchRawProductsPaged,
+            upsert: upsertRawProduct,
+            deleteById: deleteRawProductById,
+          }
+        : {
+            fetchCategories: fetchProductCategories,
+            fetchPaged: fetchProductsPaged,
+            upsert: upsertProduct,
+            deleteById: deleteProductById,
+          },
+    [isRawMode],
+  );
   const [categories, setCategories] = useState([]);
 
   const [editProduct, setEditProduct] = useState(null);
@@ -81,21 +85,45 @@ export default function ProductsPage({ mode = "finished" }) {
   const [isStockOutOpen, setIsStockOutOpen] = useState(false);
   const [productToDelete, setProductToDelete] = useState(null);
 
-  const reloadLookups = async () => {
+  useEffect(() => {
+    setWarehouseCode(isRawMode ? RAW_LOCATIONS[0] : PRODUCT_LOCATIONS[0]);
+  }, [isRawMode]);
+
+  const reloadLookups = useCallback(async () => {
     try {
       const catRes = await api.fetchCategories();
       setCategories(catRes);
     } catch (err) {
       console.error("Gagal memuat data kategori:", err.message);
     }
-  };
+  }, [api]);
+
+  const locationParam = warehouseCode;
+
+  const fetchWithLocation = useCallback(
+    (params = {}) => {
+      const query = {
+        ...params,
+      };
+      if (locationParam) {
+        query.location = locationParam;
+      }
+      return api.fetchPaged(query);
+    },
+    [api, locationParam],
+  );
+
+  const productSearchFetcher = useCallback(
+    (params = {}) => fetchWithLocation(params),
+    [fetchWithLocation],
+  );
 
   const reloadPage = async (targetPage = page) => {
     try {
       setLoading(true);
       const q = (searchTerm || "").trim();
       const searchParam = q.length ? q : undefined;
-      const data = await api.fetchPaged({
+      const data = await fetchWithLocation({
         page: targetPage,
         limit,
         search: searchParam,
@@ -117,7 +145,7 @@ export default function ProductsPage({ mode = "finished" }) {
         setLoading(true);
         const q = (searchTerm || "").trim();
         const searchParam = q.length ? q : undefined;
-        const data = await api.fetchPaged({
+        const data = await fetchWithLocation({
           page,
           limit,
           search: searchParam,
@@ -136,14 +164,19 @@ export default function ProductsPage({ mode = "finished" }) {
     return () => {
       active = false;
     };
-  }, [page, limit, searchTerm]);
+  }, [page, limit, searchTerm, fetchWithLocation]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [locationParam]);
 
   useEffect(() => {
     reloadLookups();
-  }, []);
+  }, [reloadLookups]);
 
   const handleAddProduct = async (newProduct) => {
-    await api.upsert(newProduct);
+    const locationPayload = { location: warehouseCode };
+    await api.upsert({ ...newProduct, ...locationPayload });
     await reloadLookups();
     if (page !== 1) {
       setPage(1);
@@ -154,7 +187,8 @@ export default function ProductsPage({ mode = "finished" }) {
 
   const handleUpdateProduct = async (updatedProduct) => {
     if (!updatedProduct?._id) return;
-    await api.upsert(updatedProduct);
+    const locationPayload = { location: warehouseCode };
+    await api.upsert({ ...updatedProduct, ...locationPayload });
     await reloadLookups();
     await reloadPage();
   };
@@ -185,7 +219,7 @@ export default function ProductsPage({ mode = "finished" }) {
 
   const hasAnyProduct = totalItems > 0;
 
-  const getLocationStock = (product) => {
+  const getLocationStock = useCallback((product) => {
     const stocks = Array.isArray(product.stocks) ? product.stocks : null;
     if (stocks && stocks.length) {
       const entry = stocks.find((s) => s.location === warehouseCode);
@@ -197,7 +231,7 @@ export default function ProductsPage({ mode = "finished" }) {
       return product.stock;
     }
     return 0;
-  };
+  }, [warehouseCode]);
 
   const tableRows = useMemo(
     () =>
@@ -216,7 +250,7 @@ export default function ProductsPage({ mode = "finished" }) {
             : null,
         product,
       })),
-    [allProducts, warehouseCode]
+    [allProducts, getLocationStock]
   );
 
   const formatNumber = (value) =>
@@ -235,6 +269,7 @@ export default function ProductsPage({ mode = "finished" }) {
         invoiceNumber: invoice?.trim(),
         type: "in",
         location: warehouseCode,
+        segment: isRawMode ? "raw" : "finished",
         items: items.map((item) => ({
           productCode: item.kode,
           quantity: item.qty,
@@ -263,6 +298,7 @@ export default function ProductsPage({ mode = "finished" }) {
         invoiceNumber: invoice?.trim(),
         type: "out",
         location: warehouseCode,
+        segment: isRawMode ? "raw" : "finished",
         items: items.map((item) => ({
           productCode: item.kode,
           quantity: item.qty,
@@ -280,13 +316,11 @@ export default function ProductsPage({ mode = "finished" }) {
     }
   };
 
-  const handleOpenStockIn = async () => {
-    await reloadPage(page);
+  const handleOpenStockIn = () => {
     setIsStockOpen(true);
   };
 
-  const handleOpenStockOut = async () => {
-    await reloadPage(page);
+  const handleOpenStockOut = () => {
     setIsStockOutOpen(true);
   };
 
@@ -551,14 +585,14 @@ export default function ProductsPage({ mode = "finished" }) {
         isOpen={isStockOpen}
         onClose={() => setIsStockOpen(false)}
         onApply={handleApplyStock}
-        fetchFn={api.fetchPaged}
+        fetchFn={productSearchFetcher}
       />
 
       <StockOutModal
         isOpen={isStockOutOpen}
         onClose={() => setIsStockOutOpen(false)}
         onApply={handleApplyStockOut}
-        fetchFn={api.fetchPaged}
+        fetchFn={productSearchFetcher}
       />
     </WarehousePageShell>
   );
@@ -705,7 +739,7 @@ function ProductSearchInput({ value, onChange, onSelect, inputRef, onEnter, fetc
       active = false;
       window.clearTimeout(handler);
     };
-  }, [value]);
+  }, [value, fetchFn]);
 
   return (
     <div className="relative">

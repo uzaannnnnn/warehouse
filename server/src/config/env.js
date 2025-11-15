@@ -8,12 +8,19 @@ dotenv.config({
 
 const env = process.env.NODE_ENV || "development";
 
+const rawOrigins = (process.env.CORS_ORIGIN || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+const corsOrigin = rawOrigins.includes("*") ? [] : rawOrigins;
+
 const config = {
   env,
   isProd: env === "production",
   port: Number(process.env.PORT) || 8000,
   mongoUri: process.env.MONGODB_URI,
-  corsOrigin: (process.env.CORS_ORIGIN || "").split(",").map((origin) => origin.trim()).filter(Boolean),
+  corsOrigin,
   jwt: {
     secret: process.env.JWT_SECRET,
     expiresIn: process.env.JWT_EXPIRES_IN || "1d",

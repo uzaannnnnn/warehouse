@@ -2,6 +2,7 @@ const createError = require("http-errors");
 const Invoice = require("../models/Invoice");
 const Product = require("../models/Product");
 const RawMaterial = require("../models/RawMaterial");
+const { cloneStocks, sumStocks } = require("../utils/stockUtils");
 
 function parsePagination(query) {
   const page = Math.max(1, Number(query.page) || 1);
@@ -71,34 +72,64 @@ async function createInvoice(req, res, next) {
   const invoiceNumber =
     payload.invoiceNumber?.trim() || `AUTO-${Date.now().toString(36).toUpperCase()}`;
 
+  const existingInvoice = await Invoice.findOne({ invoiceNumber });
+  if (existingInvoice) {
+    return next(createError(409, `Nomor invoice ${invoiceNumber} sudah digunakan`));
+  }
+
+  const requestedSegment =
+    typeof payload.segment === "string" ? payload.segment.trim().toLowerCase() : null;
+  const preferRaw = requestedSegment === "raw";
+
+  const locationValue = payload.location || undefined;
   const itemsWithProducts = [];
   let totalQuantity = 0;
   let hasRaw = false;
   let hasFinished = false;
-  const locationKey = payload.location ? String(payload.location).trim() : "GLOBAL";
+  const locationKey = locationValue || "GLOBAL";
+
+  const stockAdjustments = [];
 
   for (const item of payload.items) {
     const productCode = item.productCode.trim().toUpperCase();
-    // eslint-disable-next-line no-await-in-loop
-    let product = await Product.findOne({ code: productCode });
 
-    if (product) {
-      hasFinished = true;
+    let productDoc = null;
+    let isRawMaterial = false;
+
+    if (preferRaw) {
+      // eslint-disable-next-line no-await-in-loop
+      productDoc = await RawMaterial.findOne({ code: productCode });
+      if (productDoc) {
+        isRawMaterial = true;
+      } else {
+        // eslint-disable-next-line no-await-in-loop
+        productDoc = await Product.findOne({ code: productCode });
+      }
     } else {
       // eslint-disable-next-line no-await-in-loop
-      product = await RawMaterial.findOne({ code: productCode });
-      if (product) {
-        hasRaw = true;
+      productDoc = await Product.findOne({ code: productCode });
+      if (!productDoc) {
+        // eslint-disable-next-line no-await-in-loop
+        productDoc = await RawMaterial.findOne({ code: productCode });
+        if (productDoc) {
+          isRawMaterial = true;
+        }
       }
     }
 
-    if (!product) {
+    if (!productDoc) {
       return next(createError(404, `Produk dengan kode ${productCode} tidak ditemukan`));
+    }
+
+    if (isRawMaterial) {
+      hasRaw = true;
+    } else {
+      hasFinished = true;
     }
 
     const quantity = item.quantity;
 
-    const stocks = Array.isArray(product.stocks) ? product.stocks : [];
+    const stocks = cloneStocks(productDoc.stocks);
     let entry = stocks.find((s) => s.location === locationKey);
     const currentQty = entry && typeof entry.quantity === "number" ? entry.quantity : 0;
 
@@ -120,18 +151,17 @@ async function createInvoice(req, res, next) {
       entry.quantity = nextQty;
     }
 
-    product.stocks = stocks;
-    product.stock = stocks.reduce(
-      (sum, s) => sum + (typeof s.quantity === "number" ? s.quantity : 0),
-      0,
-    );
-    // eslint-disable-next-line no-await-in-loop
-    await product.save();
+    const newTotalStock = sumStocks(stocks);
+    stockAdjustments.push({
+      doc: productDoc,
+      stocks,
+      totalStock: newTotalStock,
+    });
 
     itemsWithProducts.push({
-      product: product._id,
+      product: productDoc._id,
       productCode,
-      productName: product.name,
+      productName: productDoc.name,
       quantity,
     });
     totalQuantity += quantity;
@@ -139,13 +169,16 @@ async function createInvoice(req, res, next) {
 
   const invoiceDate = payload.date ? new Date(payload.date) : new Date();
 
+  let invoice;
   try {
-    const segment = hasRaw && !hasFinished ? "raw" : "finished";
+    const segment =
+      requestedSegment ||
+      (hasRaw && !hasFinished ? "raw" : hasFinished ? "finished" : "finished");
 
-    const invoice = await Invoice.create({
+    invoice = await Invoice.create({
       invoiceNumber,
       type: payload.type,
-      location: payload.location ? String(payload.location).trim() : undefined,
+      location: locationValue,
       date: invoiceDate,
       items: itemsWithProducts,
       totalQuantity,
@@ -157,17 +190,32 @@ async function createInvoice(req, res, next) {
           }
         : undefined,
     });
-
-    res.status(201).json({
-      success: true,
-      data: invoice,
-    });
   } catch (error) {
     if (error.code === 11000) {
       return next(createError(409, "Nomor invoice sudah digunakan"));
     }
     return next(error);
   }
+
+  try {
+    await Promise.all(
+      stockAdjustments.map(({ doc, stocks, totalStock }) => {
+        doc.stocks = stocks;
+        doc.stock = totalStock;
+        return doc.save();
+      }),
+    );
+  } catch (error) {
+    if (invoice?._id) {
+      await Invoice.findByIdAndDelete(invoice._id).catch(() => {});
+    }
+    return next(error);
+  }
+
+  return res.status(201).json({
+    success: true,
+    data: invoice,
+  });
 }
 
 async function claimInvoiceForProduction(req, res, next) {

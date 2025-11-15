@@ -17,6 +17,7 @@ export async function createInvoiceRecord(payload) {
     invoiceNumber: payload.invoiceNumber,
     type: payload.type,
     location: payload.location,
+    segment: payload.segment,
     items: payload.items?.map((item) => ({
       productCode: item.productCode || item.kode,
       quantity: item.quantity ?? item.qty,

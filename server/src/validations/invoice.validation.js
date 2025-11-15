@@ -22,6 +22,13 @@ const createInvoiceSchema = z.object({
   date: z
     .union([z.string().datetime().optional(), z.date().optional()])
     .optional(),
+  location: z
+    .string()
+    .optional()
+    .transform((val) => (val && val.trim().length ? val.trim() : undefined)),
+  segment: z
+    .enum(["finished", "raw"])
+    .optional(),
   items: z
     .array(invoiceItemSchema, {
       required_error: "Minimal satu item harus ditambahkan",

@@ -42,12 +42,16 @@ export async function fetchCategories() {
 }
 
 export async function fetchProductsPaged(params = {}) {
+  const query = {
+    page: params.page,
+    limit: params.limit,
+    search: params.search,
+  };
+  if (params.location) {
+    query.location = params.location;
+  }
   const { data } = await apiClient.get("/warehouse/products", {
-    params: {
-      page: params.page,
-      limit: params.limit,
-      search: params.search,
-    },
+    params: query,
   });
   return data?.data || { items: [], total: 0, pages: 1 };
 }
@@ -72,6 +76,9 @@ export async function upsertProduct(product) {
     sellingPrice:
       typeof payload.sellingPrice === "number" ? payload.sellingPrice : 0,
   };
+  if (product.location) {
+    body.location = product.location;
+  }
 
   if (!payload._id) {
     const { data } = await apiClient.post("/warehouse/products", body);
@@ -88,12 +95,16 @@ export async function fetchRawCategories() {
 }
 
 export async function fetchRawProductsPaged(params = {}) {
+  const query = {
+    page: params.page,
+    limit: params.limit,
+    search: params.search,
+  };
+  if (params.location) {
+    query.location = params.location;
+  }
   const { data } = await apiClient.get("/warehouse/raw-products", {
-    params: {
-      page: params.page,
-      limit: params.limit,
-      search: params.search,
-    },
+    params: query,
   });
   return data?.data || { items: [], total: 0, pages: 1 };
 }
@@ -118,6 +129,9 @@ export async function upsertRawProduct(product) {
     sellingPrice:
       typeof payload.sellingPrice === "number" ? payload.sellingPrice : 0,
   };
+  if (product.location) {
+    body.location = product.location;
+  }
 
   if (!payload._id) {
     const { data } = await apiClient.post("/warehouse/raw-products", body);
