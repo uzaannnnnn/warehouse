@@ -633,6 +633,7 @@ export default function ProductsPage({ mode = "finished" }) {
         onClose={() => setIsStockOpen(false)}
         onApply={handleApplyStock}
         fetchFn={productSearchFetcher}
+        location={warehouseCode}
       />
 
       <StockOutModal
@@ -640,6 +641,7 @@ export default function ProductsPage({ mode = "finished" }) {
         onClose={() => setIsStockOutOpen(false)}
         onApply={handleApplyStockOut}
         fetchFn={productSearchFetcher}
+        location={warehouseCode}
       />
     </WarehousePageShell>
   );
@@ -840,7 +842,7 @@ function ProductSearchInput({ value, onChange, onSelect, inputRef, onEnter, fetc
   );
 }
 
-function StockInModal({ isOpen, onClose, onApply, fetchFn }) {
+function StockInModal({ isOpen, onClose, onApply, fetchFn, location }) {
   const [step, setStep] = useState(1);
   const [invoice, setInvoice] = useState("");
   const [kode, setKode] = useState("");
@@ -911,6 +913,13 @@ function StockInModal({ isOpen, onClose, onApply, fetchFn }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
       <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
         <h2 className="mb-4 text-lg font-semibold text-gray-800">Stok Masuk</h2>
+
+        {location && (
+          <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-gray-100 px-3 py-1 text-[11px] font-medium text-gray-700">
+            <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
+            Lokasi: {location}
+          </div>
+        )}
 
         <div className="mb-4 flex gap-2 text-xs font-medium text-gray-600">
           <span
@@ -1083,7 +1092,7 @@ function StockInModal({ isOpen, onClose, onApply, fetchFn }) {
   );
 }
 
-function StockOutModal({ isOpen, onClose, onApply, fetchFn }) {
+function StockOutModal({ isOpen, onClose, onApply, fetchFn, location }) {
   const [step, setStep] = useState(1);
   const [invoice, setInvoice] = useState("");
   const [kode, setKode] = useState("");
@@ -1156,6 +1165,13 @@ function StockOutModal({ isOpen, onClose, onApply, fetchFn }) {
         <h2 className="mb-4 text-lg font-semibold text-gray-800">
           Stok Keluar
         </h2>
+
+        {location && (
+          <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-gray-100 px-3 py-1 text-[11px] font-medium text-gray-700">
+            <span className="inline-block h-2 w-2 rounded-full bg-amber-500" />
+            Lokasi: {location}
+          </div>
+        )}
 
         <div className="mb-4 flex gap-2 text-xs font-medium text-gray-600">
           <span

@@ -109,22 +109,41 @@ async function createProduct(req, res, next) {
     typeof payload.purchasePrice === "number" && Number.isFinite(payload.purchasePrice);
   const hasSelling =
     typeof payload.sellingPrice === "number" && Number.isFinite(payload.sellingPrice);
+
   try {
     let product = await Product.findOne({ code: payload.code });
+
     if (product) {
+      // PRODUK SUDAH ADA
       if (!location) {
         return next(createError(409, "Kode produk sudah digunakan"));
       }
-      product.set(payload);
+
+      // ⬇️ Jangan timpa harga/stok/nama global ketika ada location
+      const basePayload = { ...payload };
+      delete basePayload.purchasePrice;
+      delete basePayload.sellingPrice;
+      delete basePayload.stock;
+      delete basePayload.name; // ⬅️ penting
+
+      product.set(basePayload);
+
       if (hasStockValue) {
         setLocationStock(product, location, stockValue);
       }
+
       if (hasPurchase || hasSelling) {
         setLocationPricing(product, location, {
           purchasePrice: hasPurchase ? payload.purchasePrice : undefined,
           sellingPrice: hasSelling ? payload.sellingPrice : undefined,
         });
       }
+
+      // ⬇️ simpan nama khusus lokasi
+      if (payload.name) {
+        setLocationName(product, location, payload.name);
+      }
+
       await product.save();
       return res.json({
         success: true,
@@ -132,17 +151,36 @@ async function createProduct(req, res, next) {
       });
     }
 
+    // PRODUK BELUM ADA SAMA SEKALI
     if (location) {
-      setLocationStock(payload, location, stockValue);
+      const basePayload = { ...payload };
+
+      // field global diset minimal / default, tapi boleh kamu biarkan juga
+      // kalau mau nama global ikut sama nama pertama, boleh tidak dihapus:
+      // di sini aku biarkan name tetap ada sebagai default global.
+      delete basePayload.purchasePrice;
+      delete basePayload.sellingPrice;
+      delete basePayload.stock;
+
+      if (hasStockValue) {
+        setLocationStock(basePayload, location, stockValue);
+      }
       if (hasPurchase || hasSelling) {
-        setLocationPricing(payload, location, {
+        setLocationPricing(basePayload, location, {
           purchasePrice: hasPurchase ? payload.purchasePrice : undefined,
           sellingPrice: hasSelling ? payload.sellingPrice : undefined,
         });
       }
+      if (payload.name) {
+        setLocationName(basePayload, location, payload.name);
+      }
+
+      product = await Product.create(basePayload);
+    } else {
+      // tanpa location → bener2 global
+      product = await Product.create(payload);
     }
 
-    product = await Product.create(payload);
     return res.status(201).json({
       success: true,
       data: formatProductResponse(product, location),
@@ -164,21 +202,41 @@ async function updateProduct(req, res, next) {
     typeof payload.purchasePrice === "number" && Number.isFinite(payload.purchasePrice);
   const hasSelling =
     typeof payload.sellingPrice === "number" && Number.isFinite(payload.sellingPrice);
+
   try {
     const product = await Product.findById(id);
     if (!product) {
       return next(createError(404, "Produk tidak ditemukan"));
     }
-    product.set(payload);
+
+    const basePayload = { ...payload };
+
+    if (location) {
+      // ⬇️ kalau update per lokasi, JANGAN ubah field global
+      delete basePayload.purchasePrice;
+      delete basePayload.sellingPrice;
+      delete basePayload.stock;
+      delete basePayload.name; // ⬅️ ini yang bikin nama global nggak ikut ganti
+    }
+
+    product.set(basePayload);
+
     if (location && hasStockValue) {
       setLocationStock(product, location, payload.stock);
     }
+
     if (location && (hasPurchase || hasSelling)) {
       setLocationPricing(product, location, {
         purchasePrice: hasPurchase ? payload.purchasePrice : undefined,
         sellingPrice: hasSelling ? payload.sellingPrice : undefined,
       });
     }
+
+    if (location && payload.name) {
+      // ⬇️ simpan nama khusus per lokasi
+      setLocationName(product, location, payload.name);
+    }
+
     await product.save();
     return res.json({
       success: true,
