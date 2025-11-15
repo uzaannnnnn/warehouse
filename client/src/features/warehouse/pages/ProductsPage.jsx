@@ -43,6 +43,14 @@ const PRODUCT_LOCATIONS = [
   "06-ONLINE PACKING-BGR",
 ];
 
+const STORAGE_KEYS = {
+  warehouseRaw: "warehouseCode_raw",
+  warehouseFinished: "warehouseCode_finished",
+  searchRaw: "searchTerm_raw",
+  searchFinished: "searchTerm_finished",
+};
+
+
 export default function ProductsPage({ mode = "finished" }) {
   const isRawMode = mode === "raw";
 
@@ -71,10 +79,28 @@ export default function ProductsPage({ mode = "finished" }) {
 
   const [allProducts, setAllProducts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [warehouseCode, setWarehouseCode] = useState(
-    () => (isRawMode ? RAW_LOCATIONS[0] : PRODUCT_LOCATIONS[0]),
-  );
+  const warehouseStorageKey = isRawMode
+    ? STORAGE_KEYS.warehouseRaw
+    : STORAGE_KEYS.warehouseFinished;
+
+  const searchStorageKey = isRawMode
+    ? STORAGE_KEYS.searchRaw
+    : STORAGE_KEYS.searchFinished;
+
+  const [warehouseCode, setWarehouseCode] = useState(() => {
+    if (typeof window === "undefined") {
+      return isRawMode ? RAW_LOCATIONS[0] : PRODUCT_LOCATIONS[0];
+    }
+    const options = isRawMode ? RAW_LOCATIONS : PRODUCT_LOCATIONS;
+    const saved = window.localStorage.getItem(warehouseStorageKey);
+    if (saved && options.includes(saved)) return saved;
+    return options[0];
+  });
+
+  const [searchTerm, setSearchTerm] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return window.localStorage.getItem(searchStorageKey) || "";
+  });
   const [page, setPage] = useState(1);
   const limit = 10;
   const [totalItems, setTotalItems] = useState(0);
@@ -84,10 +110,6 @@ export default function ProductsPage({ mode = "finished" }) {
   const [isStockOpen, setIsStockOpen] = useState(false);
   const [isStockOutOpen, setIsStockOutOpen] = useState(false);
   const [productToDelete, setProductToDelete] = useState(null);
-
-  useEffect(() => {
-    setWarehouseCode(isRawMode ? RAW_LOCATIONS[0] : PRODUCT_LOCATIONS[0]);
-  }, [isRawMode]);
 
   const reloadLookups = useCallback(async () => {
     try {
@@ -137,6 +159,31 @@ export default function ProductsPage({ mode = "finished" }) {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const options = isRawMode ? RAW_LOCATIONS : PRODUCT_LOCATIONS;
+    const saved = window.localStorage.getItem(warehouseStorageKey);
+    setWarehouseCode(saved && options.includes(saved) ? saved : options[0]);
+  }, [isRawMode, warehouseStorageKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!warehouseCode) return;
+    window.localStorage.setItem(warehouseStorageKey, warehouseCode);
+  }, [warehouseCode, warehouseStorageKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = window.localStorage.getItem(searchStorageKey) || "";
+    setSearchTerm(saved);
+  }, [isRawMode, searchStorageKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(searchStorageKey, searchTerm);
+  }, [searchTerm, searchStorageKey]);
+
 
   useEffect(() => {
     let active = true;
