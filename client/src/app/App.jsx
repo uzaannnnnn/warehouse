@@ -8,6 +8,8 @@ import ReturnPage from "../features/warehouse/pages/ReturnPage";
 import InvoiceHistoryPage from "../features/warehouse/pages/InvoiceHistoryPage";
 import RawMaterialsPage from "../features/warehouse/pages/RawMaterialsPage";
 import RawMaterialsInvoiceHistoryPage from "../features/warehouse/pages/RawMaterialsInvoiceHistoryPage";
+import PackagingPage from "../features/warehouse/pages/PackagingPage";
+import PackagingInvoiceHistoryPage from "../features/warehouse/pages/PackagingInvoiceHistoryPage";
 import ProductionPage from "../features/warehouse/pages/ProductionPage";
 import SpeedshopPage from "../features/warehouse/pages/SpeedshopPage";
 import SpeedshopProductsPage from "../features/warehouse/pages/SpeedshopProductsPage";
@@ -23,11 +25,16 @@ function App() {
         <Route index element={<WarehouseHomePage />} />
         <Route path="products" element={<ProductsPage />} />
         <Route path="raw-materials" element={<RawMaterialsPage />} />
+        <Route path="packaging" element={<PackagingPage />} />
         <Route path="return" element={<ReturnPage />} />
         <Route path="invoices-history" element={<InvoiceHistoryPage />} />
         <Route
           path="raw-invoices-history"
           element={<RawMaterialsInvoiceHistoryPage />}
+        />
+        <Route
+          path="packaging-invoices-history"
+          element={<PackagingInvoiceHistoryPage />}
         />
         <Route path="productions" element={<ProductionPage />} />
         <Route path="speedshop" element={<SpeedshopPage />} />

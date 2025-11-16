@@ -13,6 +13,21 @@ export default function Sidebar() {
 
   const sections = [
     {
+      title: "Kemasan",
+      items: [
+        {
+          label: "Kemasan",
+          path: "/warehouse/packaging",
+          icon: <FiBox />,
+        },
+        {
+          label: "History Invoice",
+          path: "/warehouse/packaging-invoices-history",
+          icon: <FiFileText />,
+        },
+      ],
+    },
+    {
       title: "Bahan Baku",
       items: [
         {
