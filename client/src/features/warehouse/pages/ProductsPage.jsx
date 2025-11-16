@@ -956,7 +956,7 @@ function StockInModal({ isOpen, onClose, onApply, fetchFn, location }) {
               <input
                 type="text"
                 value={invoice}
-                onChange={(e) => setInvoice(e.target.value)}
+                onChange={(e) => setInvoice(e.target.value.toUpperCase())}
                 className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-500/60"
                 placeholder="Contoh: INV-00123"
               />
@@ -1308,7 +1308,7 @@ function StockOutModal({ isOpen, onClose, onApply, fetchFn, location }) {
               <input
                 type="text"
                 value={invoice}
-                onChange={(e) => setInvoice(e.target.value)}
+                onChange={(e) => setInvoice(e.target.value.toUpperCase())}
                 className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-500/60"
                 placeholder="Contoh: INV-OUT-00123"
               />

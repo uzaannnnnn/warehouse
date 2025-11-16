@@ -14,8 +14,8 @@ export async function fetchProductions({ page, limit, search, location } = {}) {
 
 export async function createProductionRecord(payload) {
   const body = {
-    invoiceNumber: payload.invoiceNumber,
     productionNumber: payload.productionNumber,
+    location: payload.location,
     date: payload.date,
     rawItems: payload.rawItems?.map((item) => ({
       productCode: item.productCode || item.kode,
@@ -26,6 +26,11 @@ export async function createProductionRecord(payload) {
       quantity: item.quantity ?? item.qty,
     })),
   };
+
+  if (payload.invoiceNumber) {
+    body.invoiceNumber = payload.invoiceNumber;
+  }
+
   const { data } = await apiClient.post("/warehouse/productions", body);
   return data?.data;
 }

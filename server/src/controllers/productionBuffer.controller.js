@@ -70,10 +70,14 @@ async function saveProductionBuffer(req, res) {
     updatePayload.invoiceNumber = invoiceNumberRaw;
   }
 
-  const buffer = await ProductionBuffer.findOneAndUpdate({ user: userId, location: rawLocation }, updatePayload, {
-    upsert: true,
-    new: true,
-  });
+  const buffer = await ProductionBuffer.findOneAndUpdate(
+    { user: userId, location: rawLocation },
+    updatePayload,
+    {
+      upsert: true,
+      new: true,
+    },
+  );
 
   res.json({
     success: true,

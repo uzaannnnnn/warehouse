@@ -7,29 +7,36 @@ const productionItemSchema = z.object({
     .transform((val) => val.trim().toUpperCase()),
   quantity: z
     .number({ required_error: "Jumlah wajib diisi" })
-    .int()
+    .int("Jumlah harus bilangan bulat")
     .min(1, "Jumlah wajib lebih dari 0"),
 });
 
 const createProductionSchema = z.object({
-  invoiceNumber: z
-    .string()
-    .trim()
-    .min(1, "Nomor invoice wajib diisi"),
   productionNumber: z
-    .string()
+    .string({ required_error: "Nomor produksi wajib diisi" })
     .trim()
     .min(1, "Nomor produksi wajib diisi"),
+
+  location: z
+    .string({ required_error: "Lokasi wajib diisi" })
+    .trim()
+    .min(1, "Lokasi wajib diisi"),
+
   date: z
     .string()
-    .datetime()
-    .optional()
-    .or(z.string().min(1).optional()),
+    .trim()
+    .optional(),
+
   rawItems: z
-    .array(productionItemSchema)
+    .array(productionItemSchema, {
+      required_error: "Daftar bahan baku wajib diisi",
+    })
     .nonempty("Minimal 1 bahan baku"),
+
   finishedItems: z
-    .array(productionItemSchema)
+    .array(productionItemSchema, {
+      required_error: "Daftar produk jadi wajib diisi",
+    })
     .nonempty("Minimal 1 produk jadi"),
 });
 

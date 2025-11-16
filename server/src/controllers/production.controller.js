@@ -2,8 +2,8 @@ const createError = require("http-errors");
 const Production = require("../models/Production");
 const RawMaterial = require("../models/RawMaterial");
 const Product = require("../models/Product");
-const Invoice = require("../models/Invoice");
 const { normalizeLocation, cloneStocks, sumStocks } = require("../utils/stockUtils");
+const ProductionBuffer = require("../models/ProductionBuffer");
 
 function parsePagination(query) {
   const page = Math.max(1, Number(query.page) || 1);
@@ -63,54 +63,93 @@ async function getProduction(req, res, next) {
 
 async function createProduction(req, res, next) {
   const payload = req.validatedBody;
-  const productionNumber = payload.productionNumber.trim();
-  const invoiceNumber = payload.invoiceNumber.trim().toUpperCase();
 
-  const invoice = await Invoice.findOne({ invoiceNumber });
-  if (!invoice) {
-    return next(createError(404, `Invoice ${invoiceNumber} tidak ditemukan`));
+  const productionNumber = String(payload.productionNumber || "").trim();
+  const rawLocation = String(payload.location || "").trim(); // lokasi bahan baku / produksi
+  const invoiceNumberRaw = String(payload.invoiceNumber || "").trim().toUpperCase(); // opsional sekarang
+
+  if (!productionNumber) {
+    return next(createError(400, "Nomor produksi wajib diisi"));
   }
-  if (invoice.type !== "out" || invoice.segment !== "raw") {
+
+  if (!rawLocation) {
     return next(
-      createError(
-        400,
-        "Invoice harus bertipe stok keluar dan berasal dari bahan baku",
-      ),
+      createError(400, "Lokasi bahan baku / produksi wajib diisi"),
     );
   }
 
-  const normalizedLocation = normalizeLocation(invoice.location);
+  const rawItemsPayload = Array.isArray(payload.rawItems) ? payload.rawItems : [];
+  const finishedItemsPayload = Array.isArray(payload.finishedItems)
+    ? payload.finishedItems
+    : [];
+
+  if (!rawItemsPayload.length) {
+    return next(createError(400, "Minimal 1 bahan baku pada produksi"));
+  }
+
+  if (!finishedItemsPayload.length) {
+    return next(createError(400, "Minimal 1 produk jadi pada produksi"));
+  }
+
+  const normalizedLocation = normalizeLocation(rawLocation);
   const locationKey = normalizedLocation || "GLOBAL";
 
+  const buffer = await ProductionBuffer.findOne({
+    user: req.user._id,
+    location: normalizedLocation,
+  }).lean();
+
+  const bufferItems = Array.isArray(buffer?.items) ? buffer.items : [];
+
   const availableByCode = new Map();
-  invoice.items.forEach((item) => {
+  bufferItems.forEach((item) => {
     const code = String(item.productCode || "").trim().toUpperCase();
     if (!code) return;
+    const qty = Number(item.quantity || 0);
+    if (!Number.isFinite(qty) || qty <= 0) return;
     const current = availableByCode.get(code) || 0;
-    availableByCode.set(code, current + Number(item.quantity || 0));
+    availableByCode.set(code, current + qty);
   });
 
   const items = [];
   let totalOutQuantity = 0;
   let totalInQuantity = 0;
 
-  for (const item of payload.rawItems) {
-    const productCode = item.productCode.trim().toUpperCase();
+  for (const item of rawItemsPayload) {
+    const productCode = String(item.productCode || item.kode || "")
+      .trim()
+      .toUpperCase();
+    const quantity =
+      typeof item.quantity === "number"
+        ? item.quantity
+        : Number(item.qty ?? item.jumlah ?? 0) || 0;
+
+    if (!productCode || quantity <= 0) {
+      return next(
+        createError(
+          400,
+          "Setiap bahan baku wajib memiliki kode dan jumlah > 0",
+        ),
+      );
+    }
+
     // eslint-disable-next-line no-await-in-loop
     const material = await RawMaterial.findOne({ code: productCode });
     if (!material) {
       return next(
-        createError(404, `Bahan baku dengan kode ${productCode} tidak ditemukan`),
+        createError(
+          404,
+          `Bahan baku dengan kode ${productCode} tidak ditemukan`,
+        ),
       );
     }
 
-    const quantity = item.quantity;
     const available = availableByCode.get(productCode) || 0;
     if (quantity > available) {
       return next(
         createError(
           400,
-          `Jumlah penggunaan bahan baku ${productCode} (${quantity}) melebihi jumlah di invoice (${available})`,
+          `Jumlah penggunaan bahan baku ${productCode} (${quantity}) melebihi jumlah di buffer produksi (${available})`,
         ),
       );
     }
@@ -127,18 +166,34 @@ async function createProduction(req, res, next) {
     totalOutQuantity += quantity;
   }
 
-  // Tambah stok produk jadi
-  for (const item of payload.finishedItems) {
-    const productCode = item.productCode.trim().toUpperCase();
+  for (const item of finishedItemsPayload) {
+    const productCode = String(item.productCode || item.kode || "")
+      .trim()
+      .toUpperCase();
+    const quantity =
+      typeof item.quantity === "number"
+        ? item.quantity
+        : Number(item.qty ?? item.jumlah ?? 0) || 0;
+
+    if (!productCode || quantity <= 0) {
+      return next(
+        createError(
+          400,
+          "Setiap produk jadi wajib memiliki kode dan jumlah > 0",
+        ),
+      );
+    }
+
     // eslint-disable-next-line no-await-in-loop
     const product = await Product.findOne({ code: productCode });
     if (!product) {
       return next(
-        createError(404, `Produk jadi dengan kode ${productCode} tidak ditemukan`),
+        createError(
+          404,
+          `Produk jadi dengan kode ${productCode} tidak ditemukan`,
+        ),
       );
     }
-
-    const quantity = item.quantity;
 
     const stocks = cloneStocks(product.stocks);
     let entry = stocks.find((stockEntry) => stockEntry.location === locationKey);
@@ -175,7 +230,7 @@ async function createProduction(req, res, next) {
 
   try {
     const production = await Production.create({
-      invoiceNumber,
+      invoiceNumber: invoiceNumberRaw || undefined,
       productionNumber,
       location: normalizedLocation || undefined,
       date: productionDate,
@@ -190,8 +245,7 @@ async function createProduction(req, res, next) {
         : undefined,
     });
 
-
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       data: production,
     });

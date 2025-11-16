@@ -30,19 +30,23 @@ const productionSchema = new mongoose.Schema(
   {
     invoiceNumber: {
       type: String,
-      required: true,
       trim: true,
+      default: "",
     },
+
     productionNumber: {
       type: String,
       required: true,
       unique: true,
       trim: true,
     },
+
     location: {
       type: String,
       trim: true,
+      required: true,
     },
+
     date: {
       type: Date,
       default: Date.now,

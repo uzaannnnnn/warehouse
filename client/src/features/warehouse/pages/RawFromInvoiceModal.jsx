@@ -58,9 +58,13 @@ export default function RawFromInvoiceModal({
         return;
       }
 
-      await claimInvoiceForProduction(matched.invoiceNumber);
+      const normalizedInvoice = String(matched.invoiceNumber || "")
+        .trim()
+        .toUpperCase();
+
+      await claimInvoiceForProduction(normalizedInvoice);
       onLoaded({
-        invoiceNumber: matched.invoiceNumber,
+        invoiceNumber: normalizedInvoice,
         rawItems: nextRaw,
       });
       onClose();
@@ -107,7 +111,7 @@ export default function RawFromInvoiceModal({
               <input
                 type="text"
                 value={invoiceNumber}
-                onChange={(e) => setInvoiceNumber(e.target.value)}
+                onChange={(e) => setInvoiceNumber(e.target.value.toUpperCase())}
                 className="w-full rounded-lg border pl-9 pr-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-500/60"
                 placeholder="Contoh: INV-RAW-00123"
               />
