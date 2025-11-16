@@ -55,3 +55,15 @@ export async function saveProductionBuffer(items, location, invoiceNumber) {
   const { data } = await apiClient.post("/warehouse/production-buffer", body);
   return data?.data || { items: [], invoiceNumber: "" };
 }
+
+export async function updateProductionQc(id, qcItems) {
+  const body = {
+    qcItems: qcItems.map((it) => ({
+      productCode: it.productCode || it.kode,
+      okQuantity: it.okQuantity ?? it.okQty,
+    })),
+  };
+
+  const { data } = await apiClient.patch(`/warehouse/productions/${id}/qc`, body);
+  return data?.data;
+}

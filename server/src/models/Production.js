@@ -1,3 +1,4 @@
+// models/Production.js
 const mongoose = require("mongoose");
 
 const productionItemSchema = new mongoose.Schema(
@@ -21,6 +22,27 @@ const productionItemSchema = new mongoose.Schema(
       type: String,
       enum: ["in", "out"],
       required: true,
+    },
+  },
+  { _id: false },
+);
+
+const qcItemSchema = new mongoose.Schema(
+  {
+    productCode: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    okQuantity: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    rejectQuantity: {
+      type: Number,
+      default: 0,
+      min: 0,
     },
   },
   { _id: false },
@@ -51,6 +73,19 @@ const productionSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
+
+    status: {
+      type: String,
+      enum: ["produced", "completed"],
+      default: "produced",
+      index: true,
+    },
+
+    qcItems: {
+      type: [qcItemSchema],
+      default: [],
+    },
+
     items: {
       type: [productionItemSchema],
       validate: [(val) => val.length > 0, "Produksi harus memiliki item"],

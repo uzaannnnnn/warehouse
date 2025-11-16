@@ -257,8 +257,136 @@ async function createProduction(req, res, next) {
   }
 }
 
+async function updateProductionQc(req, res, next) {
+  const { id } = req.params;
+
+  const production = await Production.findById(id);
+  if (!production) {
+    return next(createError(404, "Produksi tidak ditemukan"));
+  }
+
+  if (production.status === "completed") {
+    return next(
+      createError(
+        400,
+        "QC untuk produksi ini sudah selesai dan tidak dapat diubah lagi",
+      ),
+    );
+  }
+
+  const body = req.body || {};
+  const qcItemsPayload = Array.isArray(body.qcItems) ? body.qcItems : [];
+
+  if (!qcItemsPayload.length) {
+    return next(
+      createError(
+        400,
+        "Data QC kosong. Minimal 1 produk jadi harus diisi QC-nya",
+      ),
+    );
+  }
+
+  const finishedItems = (production.items || []).filter(
+    (it) => it.direction === "in",
+  );
+
+  if (!finishedItems.length) {
+    return next(
+      createError(
+        400,
+        "Produksi ini tidak memiliki produk jadi untuk di-QC",
+      ),
+    );
+  }
+
+  const totalByCode = new Map();
+  finishedItems.forEach((it) => {
+    const code = String(it.productCode || "").trim().toUpperCase();
+    if (!code) return;
+    const qty = Number(it.quantity || 0) || 0;
+    const current = totalByCode.get(code) || 0;
+    totalByCode.set(code, current + qty);
+  });
+
+  const allCodes = Array.from(totalByCode.keys());
+  const qcMap = new Map();
+
+  qcItemsPayload.forEach((raw) => {
+    const code = String(raw.productCode || raw.kode || "")
+      .trim()
+      .toUpperCase();
+    const okQty = Number(raw.okQuantity ?? raw.okQty ?? 0);
+
+    if (!code) return;
+
+    if (!Number.isFinite(okQty) || okQty < 0) {
+      return next(
+        createError(
+          400,
+          `Jumlah OK untuk produk ${code} harus berupa angka >= 0`,
+        ),
+      );
+    }
+
+    if (!totalByCode.has(code)) {
+      return next(
+        createError(
+          400,
+          `Produk ${code} tidak ditemukan di daftar produk jadi produksi ini`,
+        ),
+      );
+    }
+
+    const total = totalByCode.get(code);
+    if (okQty > total) {
+      return next(
+        createError(
+          400,
+          `Jumlah OK untuk produk ${code} (${okQty}) tidak boleh melebihi total (${total})`,
+        ),
+      );
+    }
+
+    qcMap.set(code, okQty);
+  });
+
+  for (const code of allCodes) {
+    if (!qcMap.has(code)) {
+      return next(
+        createError(
+          400,
+          `Produk ${code} belum diisi jumlah OK pada QC`,
+        ),
+      );
+    }
+  }
+
+  const qcItems = allCodes.map((code) => {
+    const total = totalByCode.get(code);
+    const okQty = qcMap.get(code);
+    const rejectQty = total - okQty;
+
+    return {
+      productCode: code,
+      okQuantity: okQty,
+      rejectQuantity: rejectQty,
+    };
+  });
+
+  production.status = "completed";
+  production.qcItems = qcItems;
+
+  await production.save();
+
+  return res.json({
+    success: true,
+    data: production,
+  });
+}
+
 module.exports = {
   listProductions,
   getProduction,
   createProduction,
+  updateProductionQc,
 };

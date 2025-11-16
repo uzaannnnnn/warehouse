@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useState } from "react";
 import {
+  FiAlertTriangle,
   FiArrowRight,
   FiBox,
   FiCheckCircle,
@@ -19,6 +20,7 @@ import {
   fetchProductions,
   fetchProductionBuffer,
   saveProductionBuffer,
+  updateProductionQc,
 } from "../api/production";
 import RawFromInvoiceModal from "./RawFromInvoiceModal";
 import {
@@ -49,6 +51,20 @@ function getProductionLabelForRawLocation(rawLocation) {
   return rawLocation || "-";
 }
 
+function getQcStatusLabel(row) {
+  const status = row?.status || "produced";
+  if (status === "completed") return "Selesai";
+  return "Diproduksi";
+}
+
+function getQcStatusColorClasses(row) {
+  const status = row?.status || "produced";
+  if (status === "completed") {
+    return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  }
+  return "bg-amber-50 text-amber-700 border-amber-200";
+}
+
 export default function ProductionPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -68,6 +84,8 @@ export default function ProductionPage() {
   const [loadingCatalog, setLoadingCatalog] = useState(false);
   const [bufferRawItems, setBufferRawItems] = useState([]);
   const [bufferInvoiceNumber, setBufferInvoiceNumber] = useState("");
+
+  const [qcTarget, setQcTarget] = useState(null);
 
   const locationOptions = PRODUCTION_LOCATIONS;
   const [productionLocation, setProductionLocation] = useState(() => {
@@ -217,6 +235,12 @@ export default function ProductionPage() {
     );
 
     toast.success("Produksi berhasil disimpan");
+  };
+
+  const handleQcSaved = () => {
+    setQcTarget(null);
+    setReloadKey((key) => key + 1);
+    toast.success("QC produksi berhasil disimpan");
   };
 
   return (
@@ -369,6 +393,7 @@ export default function ProductionPage() {
                 <th className="p-3 text-left">Tanggal</th>
                 <th className="p-3 text-left">Total Bahan Keluar</th>
                 <th className="p-3 text-left">Total Produk Jadi</th>
+                <th className="p-3 text-left">Status</th>
               </tr>
             </thead>
             <tbody>
@@ -378,6 +403,11 @@ export default function ProductionPage() {
                   const date = row.date
                     ? new Date(row.date).toLocaleString("id-ID")
                     : "-";
+                  const statusLabel = getQcStatusLabel(row);
+                  const statusClass = getQcStatusColorClasses(row);
+                  const isCompleted = (row?.status || "produced") === "completed";
+                  const qcItems = Array.isArray(row.qcItems) ? row.qcItems : [];
+
                   return (
                     <Fragment key={row._id}>
                       <Motion.tr
@@ -412,6 +442,14 @@ export default function ProductionPage() {
                         <td className="p-3 text-left font-semibold">
                           {row.totalInQuantity}
                         </td>
+                        <td className="p-3 text-left">
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium ${statusClass}`}
+                          >
+                            <span className="inline-block h-1.5 w-1.5 rounded-full bg-current" />
+                            {statusLabel}
+                          </span>
+                        </td>
                       </Motion.tr>
                       <AnimatePresence>
                         {isExpanded && (
@@ -422,15 +460,16 @@ export default function ProductionPage() {
                             exit={{ opacity: 0, height: 0 }}
                             transition={{ duration: 0.3 }}
                           >
-                            <td colSpan={6} className="bg-gray-50 p-4">
+                            <td colSpan={7} className="bg-gray-50 p-4">
                               <Motion.div
                                 initial={{ opacity: 0, y: 10 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 exit={{ opacity: 0, y: -10 }}
                                 transition={{ duration: 0.25 }}
-                                className="grid gap-4 md:grid-cols-2"
+                                className="grid gap-4 md:grid-cols-3"
                               >
-                                <div className="rounded-lg border bg-white p-4">
+                                {/* Bahan baku keluar */}
+                                <div className="rounded-lg border bg-white p-4 md:col-span-1">
                                   <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-700">
                                     <FiArrowRight className="text-amber-500" />
                                     Bahan Baku Keluar
@@ -471,7 +510,9 @@ export default function ProductionPage() {
                                     </tbody>
                                   </table>
                                 </div>
-                                <div className="rounded-lg border bg-white p-4">
+
+                                {/* Produk jadi */}
+                                <div className="rounded-lg border bg-white p-4 md:col-span-1">
                                   <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-700">
                                     <FiCheckCircle className="text-emerald-500" />
                                     Produk Jadi Masuk
@@ -511,6 +552,95 @@ export default function ProductionPage() {
                                         ))}
                                     </tbody>
                                   </table>
+                                </div>
+
+                                {/* QC card */}
+                                <div className="flex flex-col justify-between rounded-lg border bg-white p-4 md:col-span-1">
+                                  <div>
+                                    <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700">
+                                      <FiAlertTriangle className="text-amber-500" />
+                                      QC Produksi
+                                    </div>
+
+                                    {isCompleted ? (
+                                      <div className="space-y-2 text-xs text-gray-600">
+                                        <div className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700">
+                                          <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                                          QC selesai
+                                        </div>
+
+                                        <div className="mt-2 rounded-lg bg-gray-50 p-3 text-xs">
+                                          <div className="mb-1 font-semibold text-gray-700">
+                                            Hasil QC per Produk
+                                          </div>
+                                          {qcItems.length === 0 ? (
+                                            <div className="text-[11px] text-gray-500">
+                                              Data QC tidak tersedia.
+                                            </div>
+                                          ) : (
+                                            <table className="min-w-full text-[11px] text-gray-700">
+                                              <thead>
+                                                <tr className="text-gray-500">
+                                                  <th className="px-2 py-1 text-left">
+                                                    Kode
+                                                  </th>
+                                                  <th className="px-2 py-1 text-right">
+                                                    OK
+                                                  </th>
+                                                  <th className="px-2 py-1 text-right">
+                                                    Gagal
+                                                  </th>
+                                                </tr>
+                                              </thead>
+                                              <tbody>
+                                                {qcItems.map((qc) => (
+                                                  <tr
+                                                    key={qc.productCode}
+                                                    className="border-t last:border-b"
+                                                  >
+                                                    <td className="px-2 py-1 font-mono">
+                                                      {qc.productCode}
+                                                    </td>
+                                                    <td className="px-2 py-1 text-right">
+                                                      {qc.okQuantity}
+                                                    </td>
+                                                    <td className="px-2 py-1 text-right text-red-500">
+                                                      {qc.rejectQuantity}
+                                                    </td>
+                                                  </tr>
+                                                ))}
+                                              </tbody>
+                                            </table>
+                                          )}
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div className="space-y-2 text-xs text-gray-600">
+                                        <p className="text-[11px] text-gray-500">
+                                          Atur jumlah produk jadi OK per kode.
+                                          Sisa jumlah akan otomatis dihitung
+                                          sebagai{" "}
+                                          <span className="font-semibold text-red-500">
+                                            produk gagal
+                                          </span>
+                                          .
+                                        </p>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {!isCompleted && (
+                                    <div className="mt-3 flex justify-end">
+                                      <button
+                                        type="button"
+                                        onClick={() => setQcTarget(row)}
+                                        className="inline-flex items-center gap-1 rounded-lg bg-amber-500 px-3 py-2 text-xs font-medium text-white hover:bg-amber-600"
+                                      >
+                                        <FiAlertTriangle />
+                                        QC Produksi
+                                      </button>
+                                    </div>
+                                  )}
                                 </div>
                               </Motion.div>
                             </td>
@@ -590,7 +720,206 @@ export default function ProductionPage() {
           });
         }}
       />
+
+      {qcTarget && (
+        <ProductionQcModal
+          production={qcTarget}
+          onClose={() => setQcTarget(null)}
+          onSaved={handleQcSaved}
+        />
+      )}
     </WarehousePageShell>
+  );
+}
+
+function ProductionQcModal({ production, onClose, onSaved }) {
+  if (!production) return null;
+
+  const finishedItems = (production.items || []).filter(
+    (it) => it.direction === "in"
+  );
+
+  const [rows, setRows] = useState(() =>
+    finishedItems.map((it) => ({
+      productCode: it.productCode,
+      productName: it.productName,
+      total: Number(it.quantity || 0) || 0,
+      ok: Number(it.quantity || 0) || 0,
+    }))
+  );
+
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleChangeOk = (code, value) => {
+    setRows((prev) =>
+      prev.map((row) => {
+        if (row.productCode !== code) return row;
+        const num = Number(value || 0);
+        let safe = Number.isNaN(num) ? 0 : num;
+        if (safe < 0) safe = 0;
+        if (safe > row.total) safe = row.total;
+        return { ...row, ok: safe };
+      })
+    );
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    if (!rows.length) {
+      toast.error("Tidak ada produk jadi untuk di-QC");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Pastikan jumlah produk OK sudah benar. Setelah QC disimpan, data tidak bisa diubah lagi. Lanjutkan?"
+    );
+    if (!confirmed) return;
+
+    try {
+      setSubmitting(true);
+      const qcItems = rows.map((row) => ({
+        productCode: row.productCode,
+        okQuantity: row.ok,
+      }));
+
+      await updateProductionQc(production._id, qcItems);
+      toast.success("QC produksi berhasil disimpan");
+      onSaved?.();
+    } catch (err) {
+      console.error("Gagal menyimpan QC:", err?.message);
+      toast.error(
+        err?.response?.data?.message || "Gagal menyimpan QC produksi"
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const totalAll = rows.reduce((sum, r) => sum + (r.total || 0), 0);
+  const totalOk = rows.reduce((sum, r) => sum + (r.ok || 0), 0);
+  const totalReject = rows.reduce(
+    (sum, r) => sum + (r.total - r.ok || 0),
+    0
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div className="w-full max-w-2xl rounded-2xl bg-white p-5 shadow-xl">
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-800">
+              <FiCheckCircle className="text-amber-500" />
+              QC Produksi
+            </h2>
+            <p className="text-xs text-gray-500">
+              Atur jumlah produk jadi OK per kode. Sisa akan otomatis dihitung
+              sebagai produk gagal.
+            </p>
+            <p className="mt-1 text-[11px] text-gray-500">
+              Nomor produksi:{" "}
+              <span className="font-mono font-semibold">
+                {production.productionNumber}
+              </span>
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full border border-gray-300 p-1 text-gray-500 hover:bg-gray-100"
+          >
+            <FiX />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4 text-sm">
+          <div className="max-h-72 overflow-y-auto rounded-lg border">
+            <table className="min-w-full text-xs text-gray-700">
+              <thead className="bg-gray-50 text-[11px] uppercase text-gray-500">
+                <tr>
+                  <th className="px-3 py-2 text-left">Kode Produk</th>
+                  <th className="px-3 py-2 text-left">Nama</th>
+                  <th className="px-3 py-2 text-right">Total</th>
+                  <th className="px-3 py-2 text-right">Produk OK</th>
+                  <th className="px-3 py-2 text-right">Produk Gagal</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => {
+                  const reject = row.total - row.ok;
+                  return (
+                    <tr
+                      key={row.productCode}
+                      className="border-t last:border-b"
+                    >
+                      <td className="px-3 py-1 font-mono text-xs">
+                        {row.productCode}
+                      </td>
+                      <td className="px-3 py-1 text-xs">
+                        {row.productName || "-"}
+                      </td>
+                      <td className="px-3 py-1 text-right">{row.total}</td>
+                      <td className="px-3 py-1 text-right">
+                        <input
+                          type="number"
+                          min="0"
+                          max={row.total}
+                          value={row.ok}
+                          onChange={(e) =>
+                            handleChangeOk(row.productCode, e.target.value)
+                          }
+                          className="w-20 rounded-lg border px-2 py-1 text-right text-xs outline-none focus:ring-2 focus:ring-amber-500/60"
+                        />
+                      </td>
+                      <td className="px-3 py-1 text-right text-red-500">
+                        {reject}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="mt-3 flex justify-between text-xs text-gray-500">
+            <span>Total produk: {totalAll}</span>
+            <span>
+              Total OK: {totalOk} • Total gagal: {totalReject}
+            </span>
+          </div>
+
+          <div className="mt-2 rounded-lg bg-amber-50 p-3 text-[11px] text-amber-700">
+            <div className="mb-1 flex items-center gap-1 font-semibold">
+              <FiAlertTriangle className="h-3 w-3" />
+              Perhatian
+            </div>
+            <p>
+              Setelah QC disimpan, status produksi akan menjadi{" "}
+              <span className="font-semibold">SELESAI</span> dan tidak dapat
+              diubah kembali.
+            </p>
+          </div>
+
+          <div className="mt-4 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border px-4 py-2 text-xs font-medium text-gray-700 hover:bg-gray-100"
+            >
+              Batal
+            </button>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="inline-flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2 text-xs font-medium text-white hover:bg-amber-600 disabled:opacity-60"
+            >
+              <FiCheckCircle />
+              {submitting ? "Menyimpan QC..." : "Simpan QC"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
 
@@ -599,9 +928,9 @@ function ProductionModal({
   onClose,
   onSuccess,
   initialRawItems,
-  rawCatalog,
+  rawCatalog, // belum dipakai tapi disiapkan
   productCatalog,
-  loadingCatalog,
+  loadingCatalog, // belum dipakai tapi disiapkan
   location,
 }) {
   const [productionNumber, setProductionNumber] = useState("");
@@ -614,7 +943,6 @@ function ProductionModal({
 
   const [finishedCode, setFinishedCode] = useState("");
   const [finishedQty, setFinishedQty] = useState("");
-
   const [finishedOpen, setFinishedOpen] = useState(false);
 
   const [packagingCode, setPackagingCode] = useState("");
@@ -638,13 +966,12 @@ function ProductionModal({
             setFinishedQty("");
             setPackagingCode("");
             setPackagingQty("");
-            setFinishedOpen(false); // <-- TAMBAH INI
+            setFinishedOpen(false);
           }, 0);
     return () => {
       if (t) window.clearTimeout(t);
     };
   }, [isOpen, initialRawItems]);
-
 
   const handleGenerateProductionNumber = () => {
     const auto = `PRD-${Date.now().toString(36).toUpperCase()}`;
@@ -748,6 +1075,47 @@ function ProductionModal({
     setFinishedQty("");
   };
 
+  const computeRemainingBuffer = (allBufferItems, usedItems) => {
+    const mapInitial = new Map();
+
+    (Array.isArray(allBufferItems) ? allBufferItems : []).forEach((it) => {
+      const code = String(it.kode || "").trim().toUpperCase();
+      if (!code) return;
+      const qty = Number(it.qty || 0) || 0;
+      const name = it.name || "";
+      const current = mapInitial.get(code);
+      mapInitial.set(code, {
+        kode: code,
+        name,
+        qty: (current?.qty || 0) + qty,
+      });
+    });
+
+    const mapUsed = new Map();
+    (Array.isArray(usedItems) ? usedItems : []).forEach((it) => {
+      const code = String(it.kode || "").trim().toUpperCase();
+      if (!code) return;
+      const qty = Number(it.qty || 0) || 0;
+      const current = mapUsed.get(code) || 0;
+      mapUsed.set(code, current + qty);
+    });
+
+    const remaining = [];
+    mapInitial.forEach((val, code) => {
+      const used = mapUsed.get(code) || 0;
+      const left = val.qty - used;
+      if (left > 0) {
+        remaining.push({
+          kode: code,
+          name: val.name,
+          qty: left,
+        });
+      }
+    });
+
+    return remaining;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -795,49 +1163,6 @@ function ProductionModal({
     }
   };
 
-
-  const computeRemainingBuffer = (allBufferItems, usedItems) => {
-    const mapInitial = new Map();
-
-    (Array.isArray(allBufferItems) ? allBufferItems : []).forEach((it) => {
-      const code = String(it.kode || "").trim().toUpperCase();
-      if (!code) return;
-      const qty = Number(it.qty || 0) || 0;
-      const name = it.name || "";
-      const current = mapInitial.get(code);
-      mapInitial.set(code, {
-        kode: code,
-        name,
-        qty: (current?.qty || 0) + qty,
-      });
-    });
-
-    const mapUsed = new Map();
-    (Array.isArray(usedItems) ? usedItems : []).forEach((it) => {
-      const code = String(it.kode || "").trim().toUpperCase();
-      if (!code) return;
-      const qty = Number(it.qty || 0) || 0;
-      const current = mapUsed.get(code) || 0;
-      mapUsed.set(code, current + qty);
-    });
-
-    const remaining = [];
-    mapInitial.forEach((val, code) => {
-      const used = mapUsed.get(code) || 0;
-      const left = val.qty - used;
-      if (left > 0) {
-        remaining.push({
-          kode: code,
-          name: val.name,
-          qty: left,
-        });
-      }
-    });
-
-    return remaining;
-  };
-
-
   if (!isOpen) return null;
 
   return (
@@ -845,7 +1170,7 @@ function ProductionModal({
       <div className="w-full max-w-3xl rounded-2xl bg-white p-5 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+            <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-800">
               <FiFileText className="text-red-500" /> Produksi Baru
             </h2>
             <p className="text-xs text-gray-500">
@@ -983,7 +1308,9 @@ function ProductionModal({
                   <table className="min-w-full text-xs text-gray-700">
                     <thead className="bg-gray-50 text-[11px] uppercase text-gray-500">
                       <tr>
-                        <th className="px-3 py-2 text-left">Kode Bahan Baku</th>
+                        <th className="px-3 py-2 text-left">
+                          Kode Bahan Baku
+                        </th>
                         <th className="px-3 py-2 text-left">Nama</th>
                         <th className="px-3 py-2 text-right">Jumlah</th>
                         <th className="px-3 py-2" />
@@ -1043,7 +1370,7 @@ function ProductionModal({
                 </div>
               </div>
 
-              <div className="rounded-lg border bg-gray-50 p-3 text-xs text-gray-600 space-y-2">
+              <div className="space-y-2 rounded-lg border bg-gray-50 p-3 text-xs text-gray-600">
                 <div className="font-semibold text-gray-700">Kemasan</div>
                 <div className="grid grid-cols-[2fr,1fr] items-end gap-3">
                   <div>
@@ -1080,130 +1407,112 @@ function ProductionModal({
               </div>
 
               <div className="grid grid-cols-[2fr,1fr,auto] items-end gap-3">
-  <div className="relative">
-    <label className="mb-1 block text-xs font-medium text-gray-700">
-      Kode Produk Jadi
-    </label>
-    <input
-      type="text"
-      value={finishedCode}
-      onChange={(e) => {
-        const next = e.target.value.toUpperCase();
-        setFinishedCode(next);
-        setFinishedOpen(next.trim().length >= 3);
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          // langsung tambah produk kalau user pencet Enter
-          // pakai handleAddFinished yang sudah ada
-          // (akan validasi qty juga)
-        }
-      }}
-      className="w-full rounded-lg border px-3 py-2 text-sm font-mono outline-none focus:ring-2 focus:ring-red-500/60"
-      placeholder="Ketik minimal 3 karakter kode / nama"
-    />
+                <div className="relative">
+                  <label className="mb-1 block text-xs font-medium text-gray-700">
+                    Kode Produk Jadi
+                  </label>
+                  <input
+                    type="text"
+                    value={finishedCode}
+                    onChange={(e) => {
+                      const next = e.target.value.toUpperCase();
+                      setFinishedCode(next);
+                      setFinishedOpen(next.trim().length >= 3);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        // biasanya user pilih dari dropdown dulu
+                      }
+                    }}
+                    className="w-full rounded-lg border px-3 py-2 text-sm font-mono outline-none focus:ring-2 focus:ring-red-500/60"
+                    placeholder="Ketik minimal 3 karakter kode / nama"
+                  />
 
-    {finishedOpen && finishedCode.trim().length >= 3 && (
-      <div className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border bg-white text-xs shadow-lg">
-        {(
-          productCatalog || []
-        )
-          .filter((item) => {
-            const q = finishedCode.trim().toUpperCase();
-            const code = (item.code || "").toUpperCase();
-            const name = (item.name || "").toUpperCase();
+                  {finishedOpen && finishedCode.trim().length >= 3 && (
+                    <div className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border bg-white text-xs shadow-lg">
+                      {(() => {
+                        const q = finishedCode.trim().toUpperCase();
 
-            // filter teks (kode / nama)
-            const matchText = code.includes(q) || name.includes(q);
+                        const allMatched = (productCatalog || []).filter(
+                          (item) => {
+                            const code = (item.code || "").toUpperCase();
+                            const name = (item.name || "").toUpperCase();
+                            return code.includes(q) || name.includes(q);
+                          }
+                        );
 
-            if (!matchText) return false;
+                        const byLocation = allMatched.filter((item) => {
+                          if (!location) return true;
+                          const stocks = Array.isArray(item.stocks)
+                            ? item.stocks
+                            : [];
+                          if (!stocks.length) return false;
+                          const locKey = String(location || "").toUpperCase();
+                          return stocks.some((s) => {
+                            const loc = String(s.location || "").toUpperCase();
+                            const qty = Number(s.quantity || 0) || 0;
+                            return loc === locKey && qty > 0;
+                          });
+                        });
 
-            // OPTIONAL: filter sesuai lokasi stok
-            if (!location) return true;
+                        const toShow =
+                          byLocation.length > 0 ? byLocation : allMatched;
 
-            const stocks = Array.isArray(item.stocks) ? item.stocks : [];
-            if (!stocks.length) return true; // kalau nggak ada info stok, tampilkan saja
+                        if (toShow.length === 0) {
+                          return (
+                            <div className="px-3 py-2 text-gray-500">
+                              Tidak ada produk jadi yang cocok.
+                            </div>
+                          );
+                        }
 
-            const hasStockHere = stocks.some((s) => {
-              const loc = String(s.location || "").toUpperCase();
-              const qty = Number(s.quantity || 0) || 0;
-              return loc === String(location).toUpperCase() && qty > 0;
-            });
+                        return toShow.map((item) => (
+                          <button
+                            key={item.code}
+                            type="button"
+                            className="flex w-full items-center justify-between border-b px-3 py-2 text-left hover:bg-gray-50"
+                            onClick={() => {
+                              setFinishedCode(item.code || "");
+                              if (!finishedQty) {
+                                setFinishedQty("1");
+                              }
+                              setFinishedOpen(false);
+                            }}
+                          >
+                            <span className="font-mono text-gray-800">
+                              {item.code}
+                            </span>
+                            <span className="truncate pl-3 text-[11px] text-gray-500">
+                              {item.name}
+                            </span>
+                          </button>
+                        ));
+                      })()}
+                    </div>
+                  )}
+                </div>
 
-            return hasStockHere;
-          })
-          .map((item) => (
-            <button
-              key={item.code}
-              type="button"
-              className="flex w-full items-center justify-between border-b px-3 py-2 text-left hover:bg-gray-50"
-              onClick={() => {
-                setFinishedCode(item.code || "");
-                if (!finishedQty) {
-                  setFinishedQty("1");
-                }
-                setFinishedOpen(false);
-              }}
-            >
-              <span className="font-mono text-gray-800">
-                {item.code}
-              </span>
-              <span className="truncate pl-3 text-[11px] text-gray-500">
-                {item.name}
-              </span>
-            </button>
-          ))}
-
-        {(productCatalog || []).filter((item) => {
-          const q = finishedCode.trim().toUpperCase();
-          const code = (item.code || "").toUpperCase();
-          const name = (item.name || "").toUpperCase();
-          const matchText = code.includes(q) || name.includes(q);
-          if (!matchText) return false;
-
-          if (!location) return true;
-
-          const stocks = Array.isArray(item.stocks) ? item.stocks : [];
-          if (!stocks.length) return true;
-
-          const hasStockHere = stocks.some((s) => {
-            const loc = String(s.location || "").toUpperCase();
-            const qty = Number(s.quantity || 0) || 0;
-            return loc === String(location).toUpperCase() && qty > 0;
-          });
-
-          return hasStockHere;
-        }).length === 0 && (
-          <div className="px-3 py-2 text-gray-500">
-            Tidak ada produk jadi yang cocok di lokasi ini.
-          </div>
-        )}
-      </div>
-    )}
-  </div>
-
-  <div>
-    <label className="mb-1 block text-xs font-medium text-gray-700">
-      Jumlah
-    </label>
-    <input
-      type="number"
-      min="1"
-      value={finishedQty}
-      onChange={(e) => setFinishedQty(e.target.value)}
-      className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-500/60"
-    />
-  </div>
-  <button
-    type="button"
-    onClick={handleAddFinished}
-    className="mb-0.5 inline-flex items-center justify-center rounded-lg bg-emerald-500 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-600"
-  >
-    Tambah
-  </button>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-700">
+                    Jumlah
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={finishedQty}
+                    onChange={(e) => setFinishedQty(e.target.value)}
+                    className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-500/60"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAddFinished}
+                  className="mb-0.5 inline-flex items-center justify-center rounded-lg bg-emerald-500 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-600"
+                >
+                  Tambah
+                </button>
               </div>
-
 
               <div className="max-h-52 overflow-y-auto rounded-lg border">
                 {finishedItems.length === 0 ? (

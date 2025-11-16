@@ -33,6 +33,7 @@ const {
   listProductions,
   getProduction,
   createProduction,
+  updateProductionQc,
 } = require("../controllers/production.controller");
 const {
   getProductionBuffer,
@@ -101,6 +102,7 @@ router.post("/invoices/:invoiceNumber/claim-production", claimInvoiceForProducti
 router.get("/productions", listProductions);
 router.post("/productions", validateRequest(createProductionSchema), createProduction);
 router.get("/productions/:id", getProduction);
+router.patch("/productions/:id/qc", updateProductionQc);
 
 router.get("/production-buffer", getProductionBuffer);
 router.post("/production-buffer", saveProductionBuffer);
