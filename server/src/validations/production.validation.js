@@ -38,6 +38,23 @@ const createProductionSchema = z.object({
       required_error: "Daftar produk jadi wajib diisi",
     })
     .nonempty("Minimal 1 produk jadi"),
+
+  packaging: z
+    .object({
+      productCode: z
+        .string({ required_error: "Kode kemasan wajib diisi" })
+        .min(1, "Kode kemasan wajib diisi")
+        .transform((val) => val.trim().toUpperCase()),
+      quantity: z
+        .number({ required_error: "Jumlah kemasan wajib diisi" })
+        .int("Jumlah harus bilangan bulat")
+        .min(1, "Jumlah kemasan wajib lebih dari 0"),
+      location: z
+        .string()
+        .optional()
+        .transform((val) => (val && val.trim().length ? val.trim() : undefined)),
+    })
+    .optional(),
 });
 
 module.exports = {

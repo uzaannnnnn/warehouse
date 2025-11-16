@@ -38,6 +38,14 @@ export async function createProductionRecord(payload) {
     body.invoiceNumber = payload.invoiceNumber;
   }
 
+  if (payload.packaging && payload.packaging.code && payload.packaging.quantity) {
+    body.packaging = {
+      productCode: payload.packaging.code,
+      quantity: payload.packaging.quantity,
+      location: payload.packaging.location,
+    };
+  }
+
   const { data } = await apiClient.post("/warehouse/productions", body);
   return data?.data;
 }
@@ -57,6 +65,7 @@ export async function saveProductionBuffer(items, location, invoiceNumber) {
       productCode: item.productCode || item.kode,
       productName: item.productName || item.name,
       quantity: item.quantity ?? item.qty,
+      productCategory: item.productCategory || item.category,
     })),
   };
   const { data } = await apiClient.post("/warehouse/production-buffer", body);

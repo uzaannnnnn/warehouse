@@ -51,11 +51,13 @@ async function saveProductionBuffer(req, res) {
           ? item.quantity
           : Number(item.qty ?? item.jumlah ?? 0) || 0;
       const name = item.productName || item.name || item.nama || "";
+      const category = item.productCategory || item.category || "";
       const productCode = String(code || "").trim().toUpperCase();
       if (!productCode || quantity <= 0) return null;
       return {
         productCode,
         productName: name,
+        productCategory: category,
         quantity,
       };
     })

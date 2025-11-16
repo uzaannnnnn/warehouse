@@ -98,6 +98,20 @@ const productionSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+
+    packaging: {
+      productCode: {
+        type: String,
+        trim: true,
+      },
+      productName: String,
+      quantity: {
+        type: Number,
+        min: 0,
+        default: 0,
+      },
+    },
+
     createdBy: {
       userId: mongoose.Schema.Types.ObjectId,
       name: String,

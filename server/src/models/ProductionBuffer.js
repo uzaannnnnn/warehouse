@@ -12,6 +12,10 @@ const productionBufferItemSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    productCategory: {
+      type: String,
+      trim: true,
+    },
     quantity: {
       type: Number,
       default: 0,

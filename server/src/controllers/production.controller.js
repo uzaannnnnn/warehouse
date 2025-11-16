@@ -2,6 +2,7 @@ const createError = require("http-errors");
 const Production = require("../models/Production");
 const RawMaterial = require("../models/RawMaterial");
 const Product = require("../models/Product");
+const Packaging = require("../models/Packaging");
 const ProductionResultStock = require("../models/ProductionResultStock");
 const { normalizeLocation, cloneStocks, sumStocks } = require("../utils/stockUtils");
 const ProductionBuffer = require("../models/ProductionBuffer");
@@ -73,6 +74,7 @@ async function createProduction(req, res, next) {
   const productionNumber = String(payload.productionNumber || "").trim();
   const rawLocation = String(payload.location || "").trim(); // lokasi bahan baku / produksi
   const invoiceNumberRaw = String(payload.invoiceNumber || "").trim().toUpperCase(); // opsional sekarang
+  const packagingPayload = payload.packaging;
 
   if (!productionNumber) {
     return next(createError(400, "Nomor produksi wajib diisi"));
@@ -99,6 +101,8 @@ async function createProduction(req, res, next) {
 
   const normalizedLocation = normalizeLocation(rawLocation);
   const locationKey = normalizedLocation || "GLOBAL";
+  const packagingLocationKey =
+    normalizeLocation(packagingPayload?.location) || locationKey;
 
   const buffer = await ProductionBuffer.findOne({
     user: req.user._id,
@@ -120,6 +124,7 @@ async function createProduction(req, res, next) {
   const items = [];
   let totalOutQuantity = 0;
   let totalInQuantity = 0;
+  let packagingSummary = null;
 
   for (const item of rawItemsPayload) {
     const productCode = String(item.productCode || item.kode || "")
@@ -232,6 +237,64 @@ async function createProduction(req, res, next) {
     totalInQuantity += quantity;
   }
 
+  if (packagingPayload && packagingPayload.productCode && packagingPayload.quantity) {
+    const packagingCode = String(packagingPayload.productCode || "")
+      .trim()
+      .toUpperCase();
+    const packagingQty = Number(packagingPayload.quantity || 0) || 0;
+
+    if (packagingCode && packagingQty > 0) {
+      // eslint-disable-next-line no-await-in-loop
+      const material = await Packaging.findOne({ code: packagingCode });
+      if (!material) {
+        return next(
+          createError(
+            404,
+            `Kemasan dengan kode ${packagingCode} tidak ditemukan`,
+          ),
+        );
+      }
+
+      const stocks = cloneStocks(material.stocks);
+      let entry = stocks.find(
+        (stockEntry) => stockEntry.location === packagingLocationKey,
+      );
+      const currentQty =
+        entry && typeof entry.quantity === "number" && Number.isFinite(entry.quantity)
+          ? entry.quantity
+          : 0;
+
+      if (packagingQty > currentQty) {
+        return next(
+          createError(
+            400,
+            `Stok kemasan ${packagingCode} di lokasi ${locationKey} tidak mencukupi`,
+          ),
+        );
+      }
+
+      const nextQty = currentQty - packagingQty;
+
+      if (!entry) {
+        entry = { location: packagingLocationKey, quantity: nextQty };
+        stocks.push(entry);
+      } else {
+        entry.quantity = nextQty;
+      }
+
+      material.stocks = stocks;
+      material.stock = sumStocks(stocks);
+      // eslint-disable-next-line no-await-in-loop
+      await material.save();
+
+      packagingSummary = {
+        productCode: packagingCode,
+        productName: material.name,
+        quantity: packagingQty,
+      };
+    }
+  }
+
   const productionDate = payload.date ? new Date(payload.date) : new Date();
 
   try {
@@ -243,6 +306,7 @@ async function createProduction(req, res, next) {
       items,
       totalOutQuantity,
       totalInQuantity,
+      packaging: packagingSummary || undefined,
       createdBy: req.user
         ? {
             userId: req.user._id,
