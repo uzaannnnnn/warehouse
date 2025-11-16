@@ -16,6 +16,14 @@ const {
   listRawCategories,
 } = require("../controllers/rawMaterial.controller");
 const {
+  listPackagingMaterials,
+  getPackagingMaterial,
+  createPackagingMaterial,
+  updatePackagingMaterial,
+  deletePackagingMaterial,
+  listPackagingCategories,
+} = require("../controllers/packaging.controller");
+const {
   listInvoices,
   getInvoice,
   createInvoice,
@@ -68,6 +76,22 @@ router.put("/raw-products/:id", validateRequest(updateProductSchema), updateRawM
 router.delete("/raw-products/:id", deleteRawMaterial);
 
 router.get("/raw-categories", listRawCategories);
+
+router.get("/packaging-products", listPackagingMaterials);
+router.post(
+  "/packaging-products",
+  validateRequest(createProductSchema),
+  createPackagingMaterial,
+);
+router.get("/packaging-products/:id", getPackagingMaterial);
+router.put(
+  "/packaging-products/:id",
+  validateRequest(updateProductSchema),
+  updatePackagingMaterial,
+);
+router.delete("/packaging-products/:id", deletePackagingMaterial);
+
+router.get("/packaging-categories", listPackagingCategories);
 
 router.get("/invoices", listInvoices);
 router.post("/invoices", validateRequest(createInvoiceSchema), createInvoice);

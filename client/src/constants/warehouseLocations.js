@@ -4,6 +4,12 @@ export const RAW_LOCATIONS = [
   "03-BAHAN BAKU-BGR",
 ];
 
+export const PACKAGING_LOCATIONS = [
+  "10-KEMASAN-KTP",
+  "11-KEMASAN-DPK",
+  "12-KEMASAN-BGR",
+];
+
 export const PRODUCTION_LOCATIONS = [
   "04-PRODUKSI-KTP",
   "05-PRODUKSI-DPK",

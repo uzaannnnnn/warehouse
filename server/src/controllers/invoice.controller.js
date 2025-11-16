@@ -2,6 +2,7 @@ const createError = require("http-errors");
 const Invoice = require("../models/Invoice");
 const Product = require("../models/Product");
 const RawMaterial = require("../models/RawMaterial");
+const Packaging = require("../models/Packaging");
 const { cloneStocks, sumStocks } = require("../utils/stockUtils");
 
 function parsePagination(query) {
@@ -99,6 +100,10 @@ async function createInvoice(req, res, next) {
     if (preferRaw) {
       // eslint-disable-next-line no-await-in-loop
       productDoc = await RawMaterial.findOne({ code: productCode });
+      if (!productDoc) {
+        // eslint-disable-next-line no-await-in-loop
+        productDoc = await Packaging.findOne({ code: productCode });
+      }
       if (productDoc) {
         isRawMaterial = true;
       } else {
@@ -111,6 +116,10 @@ async function createInvoice(req, res, next) {
       if (!productDoc) {
         // eslint-disable-next-line no-await-in-loop
         productDoc = await RawMaterial.findOne({ code: productCode });
+        if (!productDoc) {
+          // eslint-disable-next-line no-await-in-loop
+          productDoc = await Packaging.findOne({ code: productCode });
+        }
         if (productDoc) {
           isRawMaterial = true;
         }
@@ -127,9 +136,17 @@ async function createInvoice(req, res, next) {
       hasFinished = true;
     }
 
-    const quantity = item.quantity;
+    const stocks = Array.isArray(productDoc.stocks)
+      ? cloneStocks(productDoc.stocks)
+      : [];
 
-    const stocks = cloneStocks(productDoc.stocks);
+    const quantity = Number(item.quantity) || 0;
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      return next(
+        createError(400, `Jumlah untuk produk ${productCode} harus lebih besar dari 0`),
+      );
+    }
+
     let entry = stocks.find((s) => s.location === locationKey);
     const currentQty = entry && typeof entry.quantity === "number" ? entry.quantity : 0;
 

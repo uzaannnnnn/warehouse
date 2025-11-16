@@ -141,3 +141,59 @@ export async function upsertRawProduct(product) {
   const { data } = await apiClient.put(`/warehouse/raw-products/${payload._id}`, body);
   return data?.data;
 }
+
+export async function fetchPackagingCategories() {
+  const { data } = await apiClient.get("/warehouse/packaging-categories");
+  return data?.data || [];
+}
+
+export async function fetchPackagingProductsPaged(params = {}) {
+  const query = {
+    page: params.page,
+    limit: params.limit,
+    search: params.search,
+  };
+  if (params.location) {
+    query.location = params.location;
+  }
+  const { data } = await apiClient.get("/warehouse/packaging-products", {
+    params: query,
+  });
+  return data?.data || { items: [], total: 0, pages: 1 };
+}
+
+export async function fetchPackagingProductById(id) {
+  const { data } = await apiClient.get(`/warehouse/packaging-products/${id}`);
+  return data?.data;
+}
+
+export async function deletePackagingProductById(id) {
+  await apiClient.delete(`/warehouse/packaging-products/${id}`);
+}
+
+export async function upsertPackagingProduct(product) {
+  const payload = normalizeProductPayload(product);
+  const body = {
+    code: payload.code,
+    name: payload.name,
+    category: payload.category,
+    purchasePrice:
+      typeof payload.purchasePrice === "number" ? payload.purchasePrice : 0,
+    sellingPrice:
+      typeof payload.sellingPrice === "number" ? payload.sellingPrice : 0,
+  };
+  if (product.location) {
+    body.location = product.location;
+  }
+
+  if (!payload._id) {
+    const { data } = await apiClient.post("/warehouse/packaging-products", body);
+    return data?.data;
+  }
+
+  const { data } = await apiClient.put(
+    `/warehouse/packaging-products/${payload._id}`,
+    body,
+  );
+  return data?.data;
+}

@@ -25,6 +25,10 @@ import {
   fetchRawProductsPaged,
   deleteRawProductById,
   upsertRawProduct,
+  fetchPackagingCategories,
+  fetchPackagingProductsPaged,
+  deletePackagingProductById,
+  upsertPackagingProduct,
 } from "../api/mockData";
 import { createInvoiceRecord } from "../api/invoices";
 import { playSuccessSound } from "../../../utils/sound";
@@ -33,13 +37,16 @@ import { WarehousePageShell } from "../../../components/templates/WarehousePageS
 import {
   RAW_LOCATIONS,
   PRODUCT_LOCATIONS,
+  PACKAGING_LOCATIONS,
 } from "../../../constants/warehouseLocations";
 
 const STORAGE_KEYS = {
   warehouseRaw: "warehouseCode_raw",
   warehouseFinished: "warehouseCode_finished",
+  warehousePackaging: "warehouseCode_packaging",
   searchRaw: "searchTerm_raw",
   searchFinished: "searchTerm_finished",
+  searchPackaging: "searchTerm_packaging",
 };
 
 export default function ProductsPage({
@@ -50,30 +57,42 @@ export default function ProductsPage({
   pageTitle = "Daftar Produk",
 }) {
   const isRawMode = mode === "raw";
+  const isPackagingMode = mode === "packaging";
 
-  const defaultLocationOptions = isRawMode ? RAW_LOCATIONS : PRODUCT_LOCATIONS;
+  const defaultLocationOptions = isRawMode
+    ? RAW_LOCATIONS
+    : isPackagingMode
+      ? PACKAGING_LOCATIONS
+      : PRODUCT_LOCATIONS;
   const locationOptions =
     Array.isArray(locationOptionsOverride) && locationOptionsOverride.length
       ? locationOptionsOverride
       : defaultLocationOptions;
 
-  const api = useMemo(
-    () =>
-      isRawMode
-        ? {
-            fetchCategories: fetchRawCategories,
-            fetchPaged: fetchRawProductsPaged,
-            upsert: upsertRawProduct,
-            deleteById: deleteRawProductById,
-          }
-        : {
-            fetchCategories: fetchProductCategories,
-            fetchPaged: fetchProductsPaged,
-            upsert: upsertProduct,
-            deleteById: deleteProductById,
-          },
-    [isRawMode],
-  );
+  const api = useMemo(() => {
+    if (isRawMode) {
+      return {
+        fetchCategories: fetchRawCategories,
+        fetchPaged: fetchRawProductsPaged,
+        upsert: upsertRawProduct,
+        deleteById: deleteRawProductById,
+      };
+    }
+    if (isPackagingMode) {
+      return {
+        fetchCategories: fetchPackagingCategories,
+        fetchPaged: fetchPackagingProductsPaged,
+        upsert: upsertPackagingProduct,
+        deleteById: deletePackagingProductById,
+      };
+    }
+    return {
+      fetchCategories: fetchProductCategories,
+      fetchPaged: fetchProductsPaged,
+      upsert: upsertProduct,
+      deleteById: deleteProductById,
+    };
+  }, [isRawMode, isPackagingMode]);
   const [categories, setCategories] = useState([]);
 
   const [editProduct, setEditProduct] = useState(null);
@@ -84,11 +103,19 @@ export default function ProductsPage({
   const [loading, setLoading] = useState(true);
   const warehouseStorageKey =
     locationStorageKeyOverride ||
-    (isRawMode ? STORAGE_KEYS.warehouseRaw : STORAGE_KEYS.warehouseFinished);
+    (isRawMode
+      ? STORAGE_KEYS.warehouseRaw
+      : isPackagingMode
+        ? STORAGE_KEYS.warehousePackaging
+        : STORAGE_KEYS.warehouseFinished);
 
   const searchStorageKey =
     searchStorageKeyOverride ||
-    (isRawMode ? STORAGE_KEYS.searchRaw : STORAGE_KEYS.searchFinished);
+    (isRawMode
+      ? STORAGE_KEYS.searchRaw
+      : isPackagingMode
+        ? STORAGE_KEYS.searchPackaging
+        : STORAGE_KEYS.searchFinished);
 
   const [warehouseCode, setWarehouseCode] = useState(() => {
     if (typeof window === "undefined") {
@@ -182,7 +209,7 @@ export default function ProductsPage({
     if (typeof window === "undefined") return;
     const saved = window.localStorage.getItem(searchStorageKey) || "";
     setSearchTerm(saved);
-  }, [isRawMode, searchStorageKey]);
+  }, [isRawMode, isPackagingMode, searchStorageKey]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -321,7 +348,7 @@ export default function ProductsPage({
         invoiceNumber: invoice?.trim(),
         type: "in",
         location: warehouseCode,
-        segment: isRawMode ? "raw" : "finished",
+        segment: isRawMode || isPackagingMode ? "raw" : "finished",
         items: items.map((item) => ({
           productCode: item.kode,
           quantity: item.qty,
@@ -350,7 +377,7 @@ export default function ProductsPage({
         invoiceNumber: invoice?.trim(),
         type: "out",
         location: warehouseCode,
-        segment: isRawMode ? "raw" : "finished",
+        segment: isRawMode || isPackagingMode ? "raw" : "finished",
         items: items.map((item) => ({
           productCode: item.kode,
           quantity: item.qty,
