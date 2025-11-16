@@ -50,6 +50,16 @@ export default function Sidebar() {
           path: "/warehouse/productions",
           icon: <FiFileText />,
         },
+        {
+          label: "Hasil Produksi",
+          path: "/warehouse/production-results",
+          icon: <FiBox />,
+        },
+        {
+          label: "History Invoice",
+          path: "/warehouse/production-invoices-history",
+          icon: <FiFileText />,
+        },
       ],
     },
     {

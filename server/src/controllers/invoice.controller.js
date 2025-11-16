@@ -3,6 +3,7 @@ const Invoice = require("../models/Invoice");
 const Product = require("../models/Product");
 const RawMaterial = require("../models/RawMaterial");
 const Packaging = require("../models/Packaging");
+const ProductionResultStock = require("../models/ProductionResultStock");
 const { cloneStocks, sumStocks } = require("../utils/stockUtils");
 
 function parsePagination(query) {
@@ -81,6 +82,11 @@ async function createInvoice(req, res, next) {
   const requestedSegment =
     typeof payload.segment === "string" ? payload.segment.trim().toLowerCase() : null;
   const preferRaw = requestedSegment === "raw";
+  const metaSource =
+    typeof payload.meta?.source === "string"
+      ? payload.meta.source.trim().toLowerCase()
+      : null;
+  const useProductionStock = metaSource === "production-result";
 
   const locationValue = payload.location || undefined;
   const itemsWithProducts = [];
@@ -150,6 +156,42 @@ async function createInvoice(req, res, next) {
     let entry = stocks.find((s) => s.location === locationKey);
     const currentQty = entry && typeof entry.quantity === "number" ? entry.quantity : 0;
 
+    if (useProductionStock) {
+      if (!locationValue) {
+        return next(createError(400, "Lokasi wajib diisi untuk stok hasil produksi"));
+      }
+      const quality = (item.quality || "ok").toLowerCase() === "reject" ? "reject" : "ok";
+      const field = quality === "reject" ? "rejectRemaining" : "okRemaining";
+      const updatedStock = await ProductionResultStock.findOneAndUpdate(
+        {
+          location: locationKey,
+          productCode,
+          [field]: { $gte: quantity },
+        },
+        { $inc: { [field]: -quantity } },
+        { new: true },
+      );
+
+      if (!updatedStock) {
+        return next(
+          createError(
+            400,
+            `Stok hasil produksi ${productCode} (${quality === "reject" ? "gagal" : "OK"}) di lokasi ${locationKey} tidak mencukupi`,
+          ),
+        );
+      }
+
+      itemsWithProducts.push({
+        product: productDoc?._id,
+        productCode,
+        productName: productDoc?.name || productCode,
+        quantity,
+        quality,
+      });
+      totalQuantity += quantity;
+      continue;
+    }
+
     if (payload.type === "out" && currentQty < quantity) {
       return next(
         createError(
@@ -190,7 +232,13 @@ async function createInvoice(req, res, next) {
   try {
     const segment =
       requestedSegment ||
-      (hasRaw && !hasFinished ? "raw" : hasFinished ? "finished" : "finished");
+      (useProductionStock
+        ? "finished"
+        : hasRaw && !hasFinished
+          ? "raw"
+          : hasFinished
+            ? "finished"
+            : "finished");
 
     invoice = await Invoice.create({
       invoiceNumber,

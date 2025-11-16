@@ -9,6 +9,10 @@ const invoiceItemSchema = z.object({
     .number({ required_error: "Jumlah wajib diisi" })
     .int("Jumlah harus bilangan bulat")
     .positive("Jumlah harus lebih dari 0"),
+  quality: z
+    .enum(["ok", "reject"])
+    .optional()
+    .transform((val) => (val ? val : undefined)),
 });
 
 const createInvoiceSchema = z.object({
@@ -34,6 +38,7 @@ const createInvoiceSchema = z.object({
       required_error: "Minimal satu item harus ditambahkan",
     })
     .min(1, "Minimal satu item harus ditambahkan"),
+  meta: z.record(z.any()).optional(),
 });
 
 module.exports = {

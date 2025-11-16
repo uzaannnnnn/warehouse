@@ -1,12 +1,19 @@
 import apiClient from "../../../lib/apiClient";
 
-export async function fetchProductions({ page, limit, search, location } = {}) {
+export async function fetchProductions({
+  page,
+  limit,
+  search,
+  location,
+  status,
+} = {}) {
   const { data } = await apiClient.get("/warehouse/productions", {
     params: {
       page,
       limit,
       search,
       location,
+      status,
     },
   });
   return data?.data || { items: [], total: 0, pages: 1 };

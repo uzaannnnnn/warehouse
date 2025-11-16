@@ -14,8 +14,9 @@ import EmptyState from "../../../components/common/EmptyState";
 import { WarehousePageShell } from "../../../components/templates/WarehousePageShell";
 import {
   RAW_LOCATIONS,
-  PRODUCT_LOCATIONS,
+  PRODUCTION_LOCATIONS,
 } from "../../../constants/warehouseLocations";
+import { WAREHOUSE_STORAGE_KEYS } from "../../../constants/warehouseStorageKeys";
 
 const STORAGE_KEYS = {
   warehouseRaw: "warehouseCode_raw",
@@ -44,17 +45,18 @@ export default function InvoiceHistoryPage({
 
   const defaultLocationOptions = isRawSegment
     ? RAW_LOCATIONS
-    : PRODUCT_LOCATIONS;
+    : PRODUCTION_LOCATIONS;
   const locationOptions =
     Array.isArray(locationOptionsOverride) && locationOptionsOverride.length
       ? locationOptionsOverride
       : defaultLocationOptions;
 
+  const defaultStorageKey = isRawSegment
+    ? STORAGE_KEYS.warehouseRaw
+    : WAREHOUSE_STORAGE_KEYS.productionLocation;
   const warehouseStorageKey =
-    locationStorageKeyOverride ||
-    (isRawSegment
-      ? STORAGE_KEYS.warehouseRaw
-      : STORAGE_KEYS.warehouseFinished);
+    locationStorageKeyOverride || defaultStorageKey;
+  const canEditLocation = isRawSegment || Boolean(locationStorageKeyOverride);
 
   // lokasi ikut ProductsPage, tapi di sini hanya dibaca (bukan diubah)
   const [warehouseCode, setWarehouseCode] = useState(() => {
@@ -77,6 +79,43 @@ export default function InvoiceHistoryPage({
   }, [warehouseStorageKey, locationOptions]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!canEditLocation) return;
+    window.localStorage.setItem(warehouseStorageKey, warehouseCode);
+  }, [warehouseCode, warehouseStorageKey, canEditLocation]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [warehouseCode]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || canEditLocation) return undefined;
+    const handleExternalUpdate = (value) => {
+      if (typeof value !== "string") return;
+      if (!locationOptions.includes(value)) return;
+      setWarehouseCode((prev) => (prev === value ? prev : value));
+    };
+    const customListener = (event) => handleExternalUpdate(event?.detail);
+    const storageListener = (event) => {
+      if (event.key === warehouseStorageKey) {
+        handleExternalUpdate(event.newValue);
+      }
+    };
+    window.addEventListener(
+      "warehouse:production-location-change",
+      customListener,
+    );
+    window.addEventListener("storage", storageListener);
+    return () => {
+      window.removeEventListener(
+        "warehouse:production-location-change",
+        customListener,
+      );
+      window.removeEventListener("storage", storageListener);
+    };
+  }, [canEditLocation, locationOptions, warehouseStorageKey]);
+
+  useEffect(() => {
     const handler = setTimeout(() => {
       setDebouncedSearch(searchTerm.trim());
     }, 400);
@@ -92,12 +131,13 @@ export default function InvoiceHistoryPage({
     async function loadInvoices() {
       setLoading(true);
       try {
+        const apiLocation = warehouseCode;
         const data = await fetchInvoices({
           page,
           limit,
           search: debouncedSearch || undefined,
           segment,
-          location: warehouseCode, // filter by lokasi
+          location: apiLocation, // filter by lokasi
         });
         if (!active) return;
         setInvoices(Array.isArray(data?.items) ? data.items : []);
@@ -132,8 +172,15 @@ export default function InvoiceHistoryPage({
           <span className="font-medium">Lokasi:</span>
           <select
             value={warehouseCode}
-            disabled
-            className="rounded-lg border px-3 py-1 text-xs bg-gray-100 text-gray-600 cursor-not-allowed"
+            onChange={
+              canEditLocation ? (e) => setWarehouseCode(e.target.value) : undefined
+            }
+            disabled={!canEditLocation}
+            className={`rounded-lg border px-3 py-1 text-xs ${
+              canEditLocation
+                ? "text-gray-700 hover:bg-gray-50"
+                : "bg-gray-100 text-gray-500 cursor-not-allowed"
+            }`}
           >
             {locationOptions.map((loc) => (
               <option key={loc} value={loc}>
@@ -142,7 +189,9 @@ export default function InvoiceHistoryPage({
             ))}
           </select>
           <span className="text-[11px] text-gray-400">
-            Lokasi mengikuti pilihan di halaman produk.
+            {canEditLocation
+              ? "Lokasi dapat diatur langsung di halaman ini."
+              : "Lokasi invoice mengikuti pengaturan di halaman Produksi."}
           </span>
         </div>
       }

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   FiAlertTriangle,
   FiArrowRight,
@@ -27,21 +27,8 @@ import {
   RAW_LOCATIONS,
   PRODUCTION_LOCATIONS,
 } from "../../../constants/warehouseLocations";
-
-const STORAGE_KEYS = {
-  warehouseProduction: "warehouseCode_production",
-};
-
-function getRawLocationForProductionLocation(productionLocation) {
-  const index = PRODUCTION_LOCATIONS.indexOf(productionLocation);
-  if (index >= 0 && RAW_LOCATIONS[index]) {
-    return RAW_LOCATIONS[index];
-  }
-  if (productionLocation?.endsWith("-KTP")) return RAW_LOCATIONS[0];
-  if (productionLocation?.endsWith("-DPK")) return RAW_LOCATIONS[1];
-  if (productionLocation?.endsWith("-BGR")) return RAW_LOCATIONS[2];
-  return RAW_LOCATIONS[0];
-}
+import { getRawLocationForProductionLocation } from "../../../utils/warehouseLocationMap";
+import { WAREHOUSE_STORAGE_KEYS } from "../../../constants/warehouseStorageKeys";
 
 function getProductionLabelForRawLocation(rawLocation) {
   const index = RAW_LOCATIONS.indexOf(rawLocation);
@@ -92,7 +79,9 @@ export default function ProductionPage() {
     if (typeof window === "undefined") {
       return locationOptions[0];
     }
-    const saved = window.localStorage.getItem(STORAGE_KEYS.warehouseProduction);
+    const saved = window.localStorage.getItem(
+      WAREHOUSE_STORAGE_KEYS.productionLocation,
+    );
     if (saved && locationOptions.includes(saved)) return saved;
     return locationOptions[0];
   });
@@ -147,9 +136,16 @@ export default function ProductionPage() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     window.localStorage.setItem(
-      STORAGE_KEYS.warehouseProduction,
-      productionLocation
+      WAREHOUSE_STORAGE_KEYS.productionLocation,
+      productionLocation,
     );
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("warehouse:production-location-change", {
+          detail: productionLocation,
+        }),
+      );
+    }
   }, [productionLocation]);
 
   useEffect(() => {
@@ -691,33 +687,20 @@ export default function ProductionPage() {
           const normalizedInvoice = String(invoiceNumber || "")
             .trim()
             .toUpperCase();
+          const sanitizedItems = (Array.isArray(rawItems) ? rawItems : []).map(
+            (item) => ({
+              kode: (item.kode || item.productCode || "").toUpperCase(),
+              name: item.name || item.productName || "",
+              qty: Number(item.qty ?? item.quantity ?? 0) || 0,
+            }),
+          );
           setBufferInvoiceNumber(normalizedInvoice);
-          setBufferRawItems((prev) => {
-            const map = new Map();
-            prev.forEach((it) => {
-              map.set(it.kode, { ...it });
-            });
-            rawItems.forEach((it) => {
-              const existing = map.get(it.kode);
-              if (existing) {
-                map.set(it.kode, {
-                  ...existing,
-                  qty: existing.qty + it.qty,
-                  name: existing.name || it.name,
-                });
-              } else {
-                map.set(it.kode, { ...it });
-              }
-            });
-            const merged = Array.from(map.values());
-            // Persist merged buffer ke backend
-            saveProductionBuffer(merged, rawLocation, normalizedInvoice).catch(
-              (err) => {
-                console.error("Gagal menyimpan buffer produksi:", err.message);
-              }
-            );
-            return merged;
-          });
+          setBufferRawItems(sanitizedItems);
+          saveProductionBuffer(sanitizedItems, rawLocation, normalizedInvoice).catch(
+            (err) => {
+              console.error("Gagal menyimpan buffer produksi:", err.message);
+            },
+          );
         }}
       />
 
@@ -934,114 +917,86 @@ function ProductionModal({
   location,
 }) {
   const [productionNumber, setProductionNumber] = useState("");
-  const [rawItems, setRawItems] = useState([]); // { kode, name, qty }
+  const [rawItems, setRawItems] = useState([]); // { kode, name, invoiceQty, qty }
   const [finishedItems, setFinishedItems] = useState([]); // { kode, name, qty }
-
-  const [rawSearch, setRawSearch] = useState("");
-  const [rawQty, setRawQty] = useState("");
-  const [rawOpen, setRawOpen] = useState(false);
-
   const [finishedCode, setFinishedCode] = useState("");
   const [finishedQty, setFinishedQty] = useState("");
   const [finishedOpen, setFinishedOpen] = useState(false);
-
   const [packagingCode, setPackagingCode] = useState("");
   const [packagingQty, setPackagingQty] = useState("");
-
   const [submitting, setSubmitting] = useState(false);
 
-  // reset state setiap modal dibuka
+  const normalizedRawSource = useMemo(() => {
+    if (!Array.isArray(initialRawItems)) return [];
+    return initialRawItems.map((item) => ({
+      kode: (item.kode || "").toUpperCase(),
+      name: item.name || "",
+      invoiceQty: Number(item.qty || 0) || 0,
+    }));
+  }, [initialRawItems]);
+
   useEffect(() => {
     if (!isOpen) return undefined;
-    const t =
+    const timer =
       typeof window === "undefined"
         ? null
         : window.setTimeout(() => {
             setProductionNumber("");
-            setRawItems([]);
+            setRawItems(
+              normalizedRawSource.map((item) => ({
+                ...item,
+                qty: item.invoiceQty,
+              })),
+            );
             setFinishedItems([]);
-            setRawSearch("");
-            setRawQty("");
             setFinishedCode("");
             setFinishedQty("");
+            setFinishedOpen(false);
             setPackagingCode("");
             setPackagingQty("");
-            setFinishedOpen(false);
           }, 0);
     return () => {
-      if (t) window.clearTimeout(t);
+      if (timer) window.clearTimeout(timer);
     };
-  }, [isOpen, initialRawItems]);
+  }, [isOpen, normalizedRawSource]);
 
   const handleGenerateProductionNumber = () => {
     const auto = `PRD-${Date.now().toString(36).toUpperCase()}`;
     setProductionNumber(auto);
   };
 
-  // Tambah bahan baku dari buffer (dibatasi oleh qty yang ada di buffer)
-  const handleAddRawItem = () => {
-    const code = rawSearch.trim().toUpperCase();
-    const qtyNumber = Number(rawQty || 0);
-    if (!code || qtyNumber <= 0) {
-      toast.error("Masukkan kode dan jumlah bahan baku yang valid");
-      return;
-    }
-
-    const bufferItems = Array.isArray(initialRawItems) ? initialRawItems : [];
-    const bufferItem = bufferItems.find(
-      (item) => (item.kode || "").toUpperCase() === code
+  const handleRawQtyChange = (kode, value) => {
+    const safeCode = (kode || "").toUpperCase();
+    const parsed = Number(value);
+    const qty = Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+    let limited = false;
+    let maxAllowed = 0;
+    setRawItems((prev) =>
+      prev.map((item) => {
+        if (item.kode !== safeCode) return item;
+        const max = item.invoiceQty ?? 0;
+        maxAllowed = max;
+        if (qty > max) {
+          limited = true;
+          return item;
+        }
+        return { ...item, qty };
+      }),
     );
-    if (!bufferItem) {
-      toast.error("Kode bahan baku tidak ditemukan di buffer lokasi ini");
-      return;
-    }
-
-    let blocked = false;
-    let remaining = 0;
-
-    setRawItems((prev) => {
-      const existing = prev.find(
-        (item) => (item.kode || "").toUpperCase() === code
-      );
-      const usedQty = existing?.qty || 0;
-      const availableQty = Number(bufferItem.qty || 0);
-
-      if (usedQty + qtyNumber > availableQty) {
-        blocked = true;
-        remaining = Math.max(availableQty - usedQty, 0);
-        return prev;
-      }
-
-      if (existing) {
-        return prev.map((item) =>
-          (item.kode || "").toUpperCase() === code
-            ? { ...item, qty: item.qty + qtyNumber }
-            : item
-        );
-      }
-
-      return [
-        ...prev,
-        {
-          kode: (bufferItem.kode || code).toUpperCase(),
-          qty: qtyNumber,
-          name: bufferItem.name || "",
-        },
-      ];
-    });
-
-    if (blocked) {
+    if (limited) {
       toast.error(
-        remaining > 0
-          ? `Jumlah melebihi stok buffer untuk produksi (tersisa ${remaining})`
-          : "Jumlah melebihi stok buffer untuk produksi"
+        `Jumlah bahan baku ${safeCode} tidak boleh melebihi qty invoice (${maxAllowed})`,
       );
-      return;
     }
+  };
 
-    setRawSearch("");
-    setRawQty("");
-    setRawOpen(false);
+  const handleResetRawFromInvoice = () => {
+    setRawItems(
+      normalizedRawSource.map((item) => ({
+        ...item,
+        qty: item.invoiceQty,
+      })),
+    );
   };
 
   const handleAddFinished = () => {
@@ -1056,7 +1011,7 @@ function ProductionModal({
       const existing = prev.find((it) => it.kode === code);
       if (existing) {
         return prev.map((it) =>
-          it.kode === code ? { ...it, qty: it.qty + qty } : it
+          it.kode === code ? { ...it, qty: it.qty + qty } : it,
         );
       }
       const catalog = productCatalog || [];
@@ -1151,7 +1106,7 @@ function ProductionModal({
 
       const remainingBufferItems = computeRemainingBuffer(
         initialRawItems,
-        selectedRawItems
+        selectedRawItems,
       );
 
       onSuccess?.({ remainingBufferItems });
@@ -1164,6 +1119,8 @@ function ProductionModal({
   };
 
   if (!isOpen) return null;
+
+  const usedRawCount = rawItems.filter((item) => item.qty > 0).length;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
@@ -1194,126 +1151,43 @@ function ProductionModal({
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4 text-sm">
-          {/* Bahan baku dipakai */}
           <div className="grid gap-4 md:grid-cols-2">
             <div className="rounded-lg border bg-gray-50 p-3 text-xs text-gray-600">
-              <div className="mb-1 font-semibold text-gray-700">
-                Bahan Baku Dipakai
-              </div>
-
-              <div className="mb-3 grid grid-cols-[2fr,1fr,auto] items-end gap-3">
-                <div className="relative">
-                  <label className="mb-1 block text-xs font-medium text-gray-700">
-                    Scan / Kode Bahan Baku (dari buffer produksi)
-                  </label>
-                  <input
-                    type="text"
-                    value={rawSearch}
-                    onChange={(e) => {
-                      const next = e.target.value.toUpperCase();
-                      setRawSearch(next);
-                      setRawOpen(next.trim().length >= 3);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        handleAddRawItem();
-                      }
-                    }}
-                    className="w-full rounded-lg border px-3 py-2 text-sm font-mono outline-none focus:ring-2 focus:ring-red-500/60"
-                    placeholder="Ketik minimal 3 karakter"
-                  />
-                  {rawOpen && rawSearch.trim().length >= 3 && (
-                    <div className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border bg-white text-xs shadow-lg">
-                      {initialRawItems
-                        .filter((item) => {
-                          const q = rawSearch.trim().toUpperCase();
-                          const code = (item.kode || "").toUpperCase();
-                          const name = (item.name || "").toUpperCase();
-                          return code.includes(q) || name.includes(q);
-                        })
-                        .map((item) => (
-                          <button
-                            key={item.kode}
-                            type="button"
-                            className="flex w-full items-center justify-between border-b px-3 py-2 text-left hover:bg-gray-50"
-                            onClick={() => {
-                              setRawSearch(item.kode);
-                              if (!rawQty) {
-                                setRawQty("1");
-                              }
-                              setRawOpen(false);
-                            }}
-                          >
-                            <span className="font-mono text-gray-800">
-                              {item.kode}
-                            </span>
-                            <span className="truncate pl-3 text-[11px] text-gray-500">
-                              {item.name}
-                            </span>
-                          </button>
-                        ))}
-                      {initialRawItems.filter((item) => {
-                        const q = rawSearch.trim().toUpperCase();
-                        const code = (item.kode || "").toUpperCase();
-                        const name = (item.name || "").toUpperCase();
-                        return code.includes(q) || name.includes(q);
-                      }).length === 0 && (
-                        <div className="px-3 py-2 text-gray-500">
-                          Tidak ada hasil di buffer produksi.
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-gray-700">
-                    Jumlah Dipakai
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={rawQty}
-                    onChange={(e) => setRawQty(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        handleAddRawItem();
-                      }
-                    }}
-                    className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-500/60"
-                  />
+                  <div className="font-semibold text-gray-700">
+                    Bahan Baku Dipakai
+                  </div>
+                  <p className="text-[11px] text-gray-500">
+                    Data di bawah otomatis diambil dari buffer produksi lokasi
+                    ini. Sesuaikan jumlah yang dipakai.
+                  </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleAddRawItem}
-                  className="mb-0.5 inline-flex items-center justify-center rounded-lg bg-blue-500 px-4 py-2 text-xs font-medium text-white hover:bg-blue-600"
-                >
-                  Tambah
-                </button>
+                {rawItems.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleResetRawFromInvoice}
+                    className="rounded-lg border px-3 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-100"
+                  >
+                    Reset Qty Invoice
+                  </button>
+                )}
               </div>
 
-              <div className="mt-1 text-[11px] text-gray-400">
-                Bahan baku hanya bisa dipilih dari buffer produksi lokasi ini
-                (stok yang sudah dikeluarkan dari gudang).
-              </div>
-
-              <div className="mt-3 max-h-52 overflow-y-auto rounded-lg border bg-white">
+              <div className="max-h-64 overflow-y-auto rounded-lg border bg-white">
                 {rawItems.length === 0 ? (
                   <div className="p-3 text-xs text-gray-500">
-                    Belum ada item. Scan atau ketik kode bahan baku dari buffer
-                    lalu isi jumlah.
+                    Belum ada bahan baku di buffer. Silakan ambil dari invoice
+                    stok keluar.
                   </div>
                 ) : (
                   <table className="min-w-full text-xs text-gray-700">
                     <thead className="bg-gray-50 text-[11px] uppercase text-gray-500">
                       <tr>
-                        <th className="px-3 py-2 text-left">
-                          Kode Bahan Baku
-                        </th>
+                        <th className="px-3 py-2 text-left">Kode</th>
                         <th className="px-3 py-2 text-left">Nama</th>
-                        <th className="px-3 py-2 text-right">Jumlah</th>
-                        <th className="px-3 py-2" />
+                        <th className="px-3 py-2 text-right">Qty Invoice</th>
+                        <th className="px-3 py-2 text-right">Dipakai</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1323,19 +1197,21 @@ function ProductionModal({
                             {it.kode}
                           </td>
                           <td className="px-3 py-1 text-xs">{it.name || "-"}</td>
-                          <td className="px-3 py-1 text-right">{it.qty}</td>
-                          <td className="px-3 py-1 text-center">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setRawItems((prev) =>
-                                  prev.filter((p) => p.kode !== it.kode)
-                                )
+                          <td className="px-3 py-1 text-right">
+                            {it.invoiceQty}
+                          </td>
+                          <td className="px-3 py-1 text-right">
+                            <input
+                              type="number"
+                              min="0"
+                              max={it.invoiceQty}
+                              step="1"
+                              value={it.qty}
+                              onChange={(e) =>
+                                handleRawQtyChange(it.kode, e.target.value)
                               }
-                              className="text-[11px] text-red-500 hover:text-red-600"
-                            >
-                              Hapus
-                            </button>
+                              className="w-24 rounded border px-2 py-1 text-right text-xs outline-none focus:ring-2 focus:ring-red-500/60"
+                            />
                           </td>
                         </tr>
                       ))}
@@ -1345,7 +1221,6 @@ function ProductionModal({
               </div>
             </div>
 
-            {/* Nomor produksi + kemasan + produk jadi */}
             <div className="grid gap-4 md:grid-cols-1">
               <div>
                 <label className="mb-1 block text-xs font-medium text-gray-700">
@@ -1561,7 +1436,7 @@ function ProductionModal({
 
               <div className="mt-3 flex justify-end text-xs text-gray-500">
                 <span>
-                  Total bahan baku: {rawItems.length} • Total produk:{" "}
+                  Total bahan baku dipakai: {usedRawCount} • Total produk:{" "}
                   {finishedItems.length}
                 </span>
               </div>

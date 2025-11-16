@@ -2,6 +2,7 @@ const createError = require("http-errors");
 const Production = require("../models/Production");
 const RawMaterial = require("../models/RawMaterial");
 const Product = require("../models/Product");
+const ProductionResultStock = require("../models/ProductionResultStock");
 const { normalizeLocation, cloneStocks, sumStocks } = require("../utils/stockUtils");
 const ProductionBuffer = require("../models/ProductionBuffer");
 
@@ -26,6 +27,11 @@ async function listProductions(req, res) {
   const location = (req.query.location || "").trim();
   if (location) {
     filter.location = location;
+  }
+
+  const statusQuery = (req.query.status || "").trim().toLowerCase();
+  if (["completed", "produced"].includes(statusQuery)) {
+    filter.status = statusQuery;
   }
 
   const [items, total] = await Promise.all([
@@ -377,6 +383,34 @@ async function updateProductionQc(req, res, next) {
   production.qcItems = qcItems;
 
   await production.save();
+
+  const normalizedLocation = normalizeLocation(production.location) || "GLOBAL";
+  const finishedNameMap = new Map();
+  finishedItems.forEach((item) => {
+    const code = String(item.productCode || "").trim().toUpperCase();
+    if (!code) return;
+    finishedNameMap.set(code, item.productName || "");
+  });
+  await Promise.all(
+    qcItems.map((qc) => {
+      const code = String(qc.productCode || "").trim().toUpperCase();
+      if (!code) return Promise.resolve();
+      const productName = finishedNameMap.get(code) || "";
+      return ProductionResultStock.findOneAndUpdate(
+        { location: normalizedLocation, productCode: code },
+        {
+          $set: { productName },
+          $inc: {
+            okRemaining: qc.okQuantity,
+            totalOk: qc.okQuantity,
+            rejectRemaining: qc.rejectQuantity,
+            totalReject: qc.rejectQuantity,
+          },
+        },
+        { upsert: true, new: true },
+      );
+    }),
+  );
 
   return res.json({
     success: true,
