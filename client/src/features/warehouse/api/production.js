@@ -83,3 +83,33 @@ export async function updateProductionQc(id, qcItems) {
   const { data } = await apiClient.patch(`/warehouse/productions/${id}/qc`, body);
   return data?.data;
 }
+
+export async function fetchProductionResults({
+  page,
+  limit,
+  search,
+  location,
+} = {}) {
+  const { data } = await apiClient.get("/warehouse/production-results", {
+    params: {
+      page,
+      limit,
+      search,
+      location,
+    },
+  });
+  return data?.data || { items: [], total: 0, pages: 1 };
+}
+
+export async function destroyProductionReject({ productCode, location, quantity }) {
+  const body = {
+    productCode,
+    location,
+    quantity,
+  };
+  const { data } = await apiClient.post(
+    "/warehouse/production-results/destroy",
+    body,
+  );
+  return data?.data;
+}

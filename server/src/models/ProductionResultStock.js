@@ -17,6 +17,10 @@ const productionResultStockSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    category: {
+      type: String,
+      trim: true,
+    },
     okRemaining: {
       type: Number,
       default: 0,
@@ -52,4 +56,3 @@ module.exports = mongoose.model(
   "ProductionResultStock",
   productionResultStockSchema,
 );
-

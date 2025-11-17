@@ -240,6 +240,7 @@ async function createProduction(req, res, next) {
       productModel: "Product",
       productCode,
       productName: product.name,
+      productCategory: product.category,
       quantity,
       direction: "in",
     });
@@ -427,20 +428,23 @@ async function updateProductionQc(req, res, next) {
 
   const normalizedLocation = normalizeLocation(production.location) || "GLOBAL";
   const finishedNameMap = new Map();
+  const finishedCategoryMap = new Map();
   finishedItems.forEach((item) => {
     const code = String(item.productCode || "").trim().toUpperCase();
     if (!code) return;
     finishedNameMap.set(code, item.productName || "");
+    finishedCategoryMap.set(code, item.productCategory || "");
   });
   await Promise.all(
     qcItems.map((qc) => {
       const code = String(qc.productCode || "").trim().toUpperCase();
       if (!code) return Promise.resolve();
       const productName = finishedNameMap.get(code) || "";
+      const category = finishedCategoryMap.get(code) || "";
       return ProductionResultStock.findOneAndUpdate(
         { location: normalizedLocation, productCode: code },
         {
-          $set: { productName },
+          $set: { productName, category },
           $inc: {
             okRemaining: qc.okQuantity,
             totalOk: qc.okQuantity,

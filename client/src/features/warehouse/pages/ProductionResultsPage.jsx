@@ -6,15 +6,16 @@ import Pagination from "../../../components/common/Pagination";
 import EmptyState from "../../../components/common/EmptyState";
 import { WarehousePageShell } from "../../../components/templates/WarehousePageShell";
 
-import { fetchProductions } from "../api/production";
+import {
+  fetchProductionResults,
+  destroyProductionReject,
+} from "../api/production";
 import { PRODUCTION_LOCATIONS } from "../../../constants/warehouseLocations";
 import { WAREHOUSE_STORAGE_KEYS } from "../../../constants/warehouseStorageKeys";
 import { getRawLocationForProductionLocation } from "../../../utils/warehouseLocationMap";
 
-const FETCH_LIMIT = 200; // ambil max 200 per lokasi+search, lalu paginasi di frontend
 const SEARCH_DEBOUNCE_MS = 300;
 const LOCATION_KEY = WAREHOUSE_STORAGE_KEYS.productionLocation;
-const FAILED_PRODUCT_SUFFIX = "-GAGAL";
 
 export default function ProductionResultsPage() {
   const locationOptions = PRODUCTION_LOCATIONS;
@@ -54,16 +55,17 @@ export default function ProductionResultsPage() {
   }, [locationOptions]);
 
   const [loading, setLoading] = useState(true);
-  const [allProductions, setAllProductions] = useState([]); // dari backend
+  const [results, setResults] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(1);
   const limit = 10;
+  const [totalItems, setTotalItems] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [reloadKey, setReloadKey] = useState(0);
 
-  const productionLocation = warehouseCode;
-  const rawLocation = getRawLocationForProductionLocation(productionLocation);
+  const rawLocation = getRawLocationForProductionLocation(warehouseCode);
 
-  // debounce search
   useEffect(() => {
     const t = setTimeout(() => {
       setDebouncedSearch(searchTerm.trim());
@@ -71,145 +73,73 @@ export default function ProductionResultsPage() {
     return () => clearTimeout(t);
   }, [searchTerm]);
 
-  // reset page kalau lokasi / search berubah
   useEffect(() => {
     setPage(1);
   }, [debouncedSearch, warehouseCode]);
 
-  // load data produksi (completed) based on lokasi + search
   useEffect(() => {
     let active = true;
-
-    async function loadProductions() {
+    async function loadResults() {
       setLoading(true);
       try {
-        const data = await fetchProductions({
-          page: 1,
-          limit: FETCH_LIMIT,
+        const data = await fetchProductionResults({
+          page,
+          limit,
           search: debouncedSearch || undefined,
           location: rawLocation,
-          status: "completed",
         });
-
         if (!active) return;
-        const items = Array.isArray(data?.items) ? data.items : [];
-        setAllProductions(items);
+        setResults(Array.isArray(data?.items) ? data.items : []);
+        setTotalItems(Number(data?.total || 0));
+        setTotalPages(Number(data?.pages || 1));
       } catch (err) {
         if (!active) return;
-        console.error("Gagal memuat hasil produksi:", err.message);
+        console.error("Gagal memuat hasil produksi:", err?.message);
         toast.error("Gagal memuat hasil produksi");
       } finally {
         if (active) setLoading(false);
       }
     }
-
-    loadProductions();
+    loadResults();
     return () => {
       active = false;
     };
-  }, [rawLocation, debouncedSearch]);
+  }, [page, limit, debouncedSearch, rawLocation, reloadKey]);
 
-  // hanya status completed
-  const completedRows = useMemo(
-    () =>
-      allProductions.filter(
-        (row) => (row.status || "produced") === "completed",
-      ),
-    [allProductions],
-  );
-
-  // rekap per produk (OK & Reject)
-  const stockSummary = useMemo(() => {
-    const map = new Map();
-    completedRows.forEach((row) => {
-      const items = Array.isArray(row.items) ? row.items : [];
-      const finishedItems = items.filter((it) => it.direction === "in");
-      const finishedNameMap = new Map();
-
-      finishedItems.forEach((it) => {
-        const code = String(it.productCode || "").trim().toUpperCase();
-        if (!code) return;
-        finishedNameMap.set(code, it.productName || "");
-      });
-
-      const qcItems = Array.isArray(row.qcItems) ? row.qcItems : [];
-      if (qcItems.length) {
-        qcItems.forEach((qc) => {
-          const code = String(qc.productCode || "").trim().toUpperCase();
-          if (!code) return;
-          const entry = map.get(code) || {
-            kode: code,
-            name: finishedNameMap.get(code) || "",
-            okQty: 0,
-            rejectQty: 0,
-          };
-          entry.okQty += Number(qc.okQuantity || 0) || 0;
-          entry.rejectQty += Number(qc.rejectQuantity || 0) || 0;
-          map.set(code, entry);
-        });
-      } else {
-        finishedItems.forEach((it) => {
-          const code = String(it.productCode || "").trim().toUpperCase();
-          if (!code) return;
-          const entry = map.get(code) || {
-            kode: code,
-            name: it.productName || "",
-            okQty: 0,
-            rejectQty: 0,
-          };
-          entry.okQty += Number(it.quantity || 0) || 0;
-          map.set(code, entry);
-        });
-      }
-    });
-    return Array.from(map.values()).filter(
-      (entry) => entry.okQty > 0 || entry.rejectQty > 0,
-    );
-  }, [completedRows]);
-
-  // bentukkan baris stok per produk (jadi + gagal)
-  const productRows = useMemo(() => {
-    const rows = [];
-    stockSummary.forEach((entry) => {
-      const baseName = entry.name || "-";
-
-      // Produk jadi (OK)
-      if (entry.okQty > 0) {
-        rows.push({
-          id: `${entry.kode}-ok`,
-          kode: entry.kode,
-          displayCode: entry.kode,
-          name: baseName,
-          qty: entry.okQty,
-          status: "success",
-        });
-      }
-
-      // Produk gagal (reject)
-      if (entry.rejectQty > 0) {
-        rows.push({
-          id: `${entry.kode}-failed`,
-          kode: entry.kode,
-          displayCode: `${entry.kode}${FAILED_PRODUCT_SUFFIX}`,
-          name: baseName,
-          qty: entry.rejectQty,
-          status: "failed",
-        });
-      }
-    });
-    return rows;
-  }, [stockSummary]);
-
-  const totalItems = productRows.length;
-  const totalPages = Math.max(1, Math.ceil(totalItems / limit));
   const startIndex = totalItems ? (page - 1) * limit + 1 : 0;
+  const hasAnyResults = totalItems > 0;
+  const pageRows = useMemo(() => results, [results]);
 
-  const pageRows = useMemo(
-    () => productRows.slice((page - 1) * limit, page * limit),
-    [productRows, page, limit],
-  );
-  const hasAnyCompleted = totalItems > 0;
-  const isSearching = Boolean(debouncedSearch);
+  const handleDestroyReject = async (row) => {
+    const maxQty = Number(row.rejectRemaining || 0);
+    if (!maxQty) return;
+    const input = window.prompt(
+      `Masukkan jumlah produk gagal ${row.productCode} yang dimusnahkan (maks ${maxQty})`,
+      String(maxQty),
+    );
+    if (input === null) return;
+    const qty = Number(input);
+    if (!Number.isFinite(qty) || qty <= 0) {
+      toast.error("Jumlah harus lebih dari 0");
+      return;
+    }
+    if (qty > maxQty) {
+      toast.error(`Jumlah tidak boleh lebih dari ${maxQty}`);
+      return;
+    }
+    try {
+      await destroyProductionReject({
+        productCode: row.productCode,
+        location: rawLocation,
+        quantity: qty,
+      });
+      toast.success("Produk gagal berhasil dimusnahkan");
+      setReloadKey((prev) => prev + 1);
+    } catch (err) {
+      console.error("Gagal memusnahkan stok gagal:", err?.message);
+      toast.error(err?.response?.data?.message || "Gagal memusnahkan stok gagal");
+    }
+  };
 
   return (
     <WarehousePageShell
@@ -236,10 +166,10 @@ export default function ProductionResultsPage() {
       }
       headerRight={
         <div className="flex w-full flex-col gap-2 md:w-auto md:flex-row md:items-center">
-          <div className="relative flex-grow max-w-md">
+          <div className="relative w-full max-w-md">
             <input
               type="text"
-              placeholder="Cari nomor produksi / kode produk..."
+              placeholder="Cari kode / nama produk hasil produksi..."
               className="w-full rounded-lg border px-3 py-1.5 pl-9 pr-3 text-sm"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
@@ -277,46 +207,48 @@ export default function ProductionResultsPage() {
           </svg>
           <p className="text-sm font-medium">Memuat hasil produksi...</p>
         </div>
-      ) : !hasAnyCompleted ? (
+      ) : !hasAnyResults ? (
         <EmptyState
           title={
-            isSearching
+            debouncedSearch
               ? "Hasil produksi selesai tidak ditemukan"
               : "Belum ada hasil produksi selesai"
           }
           description={
-            isSearching
+            debouncedSearch
               ? "Coba ubah kata kunci pencarian atau reset filter."
               : "Hasil produksi akan muncul di sini setelah proses QC dinyatakan selesai."
           }
-          buttonText={isSearching ? "Reset Pencarian" : undefined}
-          onButtonClick={isSearching ? () => setSearchTerm("") : undefined}
-          illustration={isSearching ? "search" : "box"}
+          buttonText={debouncedSearch ? "Reset Pencarian" : undefined}
+          onButtonClick={debouncedSearch ? () => setSearchTerm("") : undefined}
+          illustration={debouncedSearch ? "search" : "box"}
         />
       ) : (
-        <ProductionProductsTable rows={pageRows} startIndex={startIndex} />
+        <ProductionProductsTable
+          rows={pageRows}
+          startIndex={startIndex}
+          onDestroy={handleDestroyReject}
+        />
       )}
 
-      {!loading && hasAnyCompleted && totalPages > 1 && (
+      {!loading && hasAnyResults && totalPages > 1 && (
         <div className="mt-6 flex flex-col items-center justify-between gap-3 md:flex-row">
           <div className="text-sm text-gray-600">
             Menampilkan {startIndex} - {Math.min(page * limit, totalItems)} dari{" "}
             {totalItems} hasil produksi
           </div>
-          <div className="flex items-center gap-2">
-            <Pagination
-              currentPage={page}
-              totalPages={totalPages}
-              onPageChange={setPage}
-            />
-          </div>
+          <Pagination
+            currentPage={page}
+            totalPages={totalPages}
+            onPageChange={setPage}
+          />
         </div>
       )}
     </WarehousePageShell>
   );
 }
 
-function ProductionProductsTable({ rows, startIndex }) {
+function ProductionProductsTable({ rows, startIndex, onDestroy }) {
   if (!rows?.length) return null;
 
   return (
@@ -325,43 +257,42 @@ function ProductionProductsTable({ rows, startIndex }) {
         <thead className="bg-gray-100 text-xs uppercase text-gray-600">
           <tr>
             <th className="w-16 px-3 py-2 text-left">No.</th>
-            <th className="px-3 py-2 text-left">Kode Produk (Display)</th>
-            <th className="px-3 py-2 text-left">Kode Induk</th>
+            <th className="px-3 py-2 text-left">Kode Produk</th>
             <th className="px-3 py-2 text-left">Nama Produk</th>
-            <th className="px-3 py-2 text-right">Jumlah</th>
+            <th className="px-3 py-2 text-right">Produk Jadi</th>
+            <th className="px-3 py-2 text-right">Produk Gagal</th>
+            <th className="px-3 py-2 text-left">Aksi</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, idx) => {
-            const isFailed = row.status === "failed";
-
-            return (
-              <tr
-                key={row.id}
-                className={`border-t ${
-                  isFailed ? "bg-rose-50/70 text-rose-700" : "bg-white"
-                }`}
-              >
-                <td className="px-3 py-2 text-xs text-gray-500">
-                  {startIndex + idx}
-                </td>
-
-                {/* Kode yang dipakai di stok (untuk gagal sudah ada suffix -GAGAL) */}
-                <td className="px-3 py-2 font-mono">{row.displayCode}</td>
-
-                {/* Kode induk / kode asli produk */}
-                <td className="px-3 py-2 font-mono text-xs text-gray-700">
-                  {row.kode}
-                </td>
-
-                <td className="px-3 py-2 text-sm">{row.name || "-"}</td>
-
-                <td className="px-3 py-2 text-right font-semibold">
-                  {row.qty}
-                </td>
-              </tr>
-            );
-          })}
+          {rows.map((row, idx) => (
+            <tr key={row._id || row.productCode} className="border-t">
+              <td className="px-3 py-2 text-xs text-gray-500">
+                {startIndex + idx}
+              </td>
+              <td className="px-3 py-2 font-mono">{row.productCode}</td>
+              <td className="px-3 py-2 text-sm">{row.productName || "-"}</td>
+              <td className="px-3 py-2 text-right font-semibold text-emerald-600">
+                {row.okRemaining || 0}
+              </td>
+              <td className="px-3 py-2 text-right font-semibold text-rose-600">
+                {row.rejectRemaining || 0}
+              </td>
+              <td className="px-3 py-2">
+                {row.rejectRemaining > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => onDestroy?.(row)}
+                    className="rounded-lg border border-rose-200 px-3 py-1 text-[11px] font-medium text-rose-600 hover:bg-rose-50"
+                  >
+                    Musnahkan
+                  </button>
+                ) : (
+                  <span className="text-[11px] text-gray-400">-</span>
+                )}
+              </td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>

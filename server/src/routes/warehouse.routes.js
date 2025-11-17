@@ -36,6 +36,10 @@ const {
   updateProductionQc,
 } = require("../controllers/production.controller");
 const {
+  listProductionResultStocks,
+  destroyProductionReject,
+} = require("../controllers/productionResult.controller");
+const {
   getProductionBuffer,
   saveProductionBuffer,
 } = require("../controllers/productionBuffer.controller");
@@ -57,6 +61,9 @@ const {
   updateSpeedshopOrderSchema,
   updateSpeedshopStatusSchema,
 } = require("../validations/speedshopOrder.validation");
+const {
+  destroyProductionRejectSchema,
+} = require("../validations/productionResult.validation");
 
 const router = express.Router();
 
@@ -106,6 +113,13 @@ router.patch("/productions/:id/qc", updateProductionQc);
 
 router.get("/production-buffer", getProductionBuffer);
 router.post("/production-buffer", saveProductionBuffer);
+
+router.get("/production-results", listProductionResultStocks);
+router.post(
+  "/production-results/destroy",
+  validateRequest(destroyProductionRejectSchema),
+  destroyProductionReject,
+);
 
 router.get("/speedshop/orders", listSpeedshopOrders);
 router.post(
