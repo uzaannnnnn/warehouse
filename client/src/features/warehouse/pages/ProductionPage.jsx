@@ -36,6 +36,17 @@ import {
 } from "../../../utils/warehouseLocationMap";
 import { WAREHOUSE_STORAGE_KEYS } from "../../../constants/warehouseStorageKeys";
 
+const STEP_LABELS = ["Bahan Baku", "Produk & Review"];
+const DUMMY_PACKAGING_OPTIONS = [
+  { code: "PKG-BOX-SM", name: "Kotak Kecil 250gr" },
+  { code: "PKG-BOX-MED", name: "Kotak Sedang 500gr" },
+  { code: "PKG-BAG-LG", name: "Pouch Besar 1kg" },
+];
+const MIN_RAW_SEARCH_LENGTH = 3;
+const MIN_FINISHED_SEARCH_LENGTH = 3;
+const MAX_RAW_SUGGESTIONS = 20;
+const MAX_FINISHED_SUGGESTIONS = 30;
+
 function getProductionLabelForRawLocation(rawLocation) {
   const index = RAW_LOCATIONS.indexOf(rawLocation);
   if (index >= 0 && PRODUCTION_LOCATIONS[index]) {
@@ -298,38 +309,72 @@ export default function ProductionPage() {
   const hasAnyProduction = totalItems > 0;
   const startIndex = totalItems ? (page - 1) * limit + 1 : 0;
 
-  const ensureCatalogLoaded = async () => {
-    if (
-      rawCatalog.length ||
-      productCatalog.length ||
-      packagingCatalog.length ||
-      loadingCatalog
-    ) {
-      return;
-    }
+    const ensureCatalogLoaded = async () => {
+    if (loadingCatalog) return;
+
     try {
       setLoadingCatalog(true);
-      const [rawRes, prodRes, packagingRes] = await Promise.all([
-        fetchRawProductsPaged({ page: 1, limit: 100 }),
-        fetchProductsPaged({ page: 1, limit: 100 }),
-        fetchPackagingProductsPaged({
-          page: 1,
-          limit: 100,
-          location: packagingLocation,
-        }),
-      ]);
-      setRawCatalog(Array.isArray(rawRes?.items) ? rawRes.items : []);
-      setProductCatalog(Array.isArray(prodRes?.items) ? prodRes.items : []);
-      setPackagingCatalog(
-        Array.isArray(packagingRes?.items) ? packagingRes.items : []
-      );
+
+      const promises = [];
+
+      // rawCatalog biasanya sudah di-preload, tapi kalau kosong kita ambil juga
+      if (!rawCatalog.length) {
+        promises.push(
+          fetchRawProductsPaged({ page: 1, limit: 500 }).then((rawRes) => {
+            setRawCatalog(Array.isArray(rawRes?.items) ? rawRes.items : []);
+          }),
+        );
+      }
+
+      // ⬇️ WAJIB: produk jadi untuk search kode produk jadi
+      if (!productCatalog.length) {
+        promises.push(
+          fetchProductsPaged({ page: 1, limit: 200 }).then((prodRes) => {
+            setProductCatalog(
+              Array.isArray(prodRes?.items) ? prodRes.items : [],
+            );
+          }),
+        );
+      }
+
+      // ⬇️ Kemasan (kalau nggak ada / error, fallback ke dummy)
+      if (!packagingCatalog.length) {
+        promises.push(
+          fetchPackagingProductsPaged({
+            page: 1,
+            limit: 200,
+            location: packagingLocation,
+          })
+            .then((packagingRes) => {
+              const fetchedPackaging = Array.isArray(packagingRes?.items)
+                ? packagingRes.items
+                : [];
+              setPackagingCatalog(
+                fetchedPackaging.length
+                  ? fetchedPackaging
+                  : DUMMY_PACKAGING_OPTIONS,
+              );
+            })
+            .catch(() => {
+              setPackagingCatalog(DUMMY_PACKAGING_OPTIONS);
+            }),
+        );
+      }
+
+      if (promises.length) {
+        await Promise.all(promises);
+      }
     } catch (err) {
       console.error("Gagal memuat katalog produksi:", err.message);
       toast.error("Gagal memuat katalog bahan baku / produk");
+      if (!packagingCatalog.length) {
+        setPackagingCatalog(DUMMY_PACKAGING_OPTIONS);
+      }
     } finally {
       setLoadingCatalog(false);
     }
   };
+
 
   const handleOpenRawModal = async () => {
     await ensureCatalogLoaded();
@@ -914,7 +959,9 @@ function ProductionModal({
   const [submitting, setSubmitting] = useState(false);
   const [rawScanCode, setRawScanCode] = useState("");
   const [rawScanQty, setRawScanQty] = useState("");
+  const [currentStep, setCurrentStep] = useState(0);
   const rawScanInputRef = useRef(null);
+  const [rawSuggestionsOpen, setRawSuggestionsOpen] = useState(false);
 
   const normalizedRawSource = useMemo(() => {
     if (!Array.isArray(initialRawItems)) return [];
@@ -945,6 +992,12 @@ function ProductionModal({
     return map;
   }, [rawItems]);
 
+  const selectedRawItems = useMemo(
+    () => rawItems.filter((item) => (Number(item.qty || 0) || 0) > 0),
+    [rawItems],
+  );
+  const usedRawCount = selectedRawItems.length;
+
   const normalizedScanCode = rawScanCode.trim().toUpperCase();
   const scanBufferInfo = normalizedScanCode
     ? bufferInfoByCode.get(normalizedScanCode)
@@ -954,6 +1007,51 @@ function ProductionModal({
     ? selectedRawQtyMap.get(normalizedScanCode) || 0
     : 0;
   const scanRemaining = Math.max(scanAvailable - scanUsed, 0);
+  const rawSearchTerm = rawScanCode.trim();
+  const rawSearchReady = rawSearchTerm.length >= MIN_RAW_SEARCH_LENGTH;
+  const rawSuggestions = useMemo(() => {
+    if (!rawSearchReady) return [];
+    const upper = rawSearchTerm.toUpperCase();
+    const lower = rawSearchTerm.toLowerCase();
+    return normalizedRawSource
+      .filter((item) => {
+        const code = item.kode || "";
+        const name = (item.name || "").toLowerCase();
+        return code.includes(upper) || name.includes(lower);
+      })
+      .slice(0, MAX_RAW_SUGGESTIONS);
+  }, [normalizedRawSource, rawSearchReady, rawSearchTerm]);
+
+  const finishedSearchTerm = finishedCode.trim();
+  const finishedSearchReady =
+    finishedSearchTerm.length >= MIN_FINISHED_SEARCH_LENGTH;
+  const finishedSuggestions = useMemo(() => {
+    if (!finishedSearchReady) return [];
+    const q = finishedSearchTerm.toUpperCase();
+    const catalog = Array.isArray(productCatalog) ? productCatalog : [];
+    const allMatched = catalog.filter((item) => {
+      const code = (item.code || "").toUpperCase();
+      const name = (item.name || "").toUpperCase();
+      return code.includes(q) || name.includes(q);
+    });
+    const byLocation = allMatched.filter((item) => {
+      if (!location) return true;
+      const stocks = Array.isArray(item.stocks) ? item.stocks : [];
+      if (!stocks.length) return false;
+      const locKey = String(location || "").toUpperCase();
+      return stocks.some((s) => {
+        const loc = String(s.location || "").toUpperCase();
+        const qty = Number(s.quantity || 0) || 0;
+        return loc === locKey && qty > 0;
+      });
+    });
+    const candidates = byLocation.length ? byLocation : allMatched;
+    return candidates.slice(0, MAX_FINISHED_SUGGESTIONS);
+  }, [finishedSearchReady, finishedSearchTerm, location, productCatalog]);
+
+  const generateProductionNumber = useCallback(() => {
+    return `PRD-${Date.now().toString(36).toUpperCase()}`;
+  }, []);
 
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -961,7 +1059,7 @@ function ProductionModal({
       typeof window === "undefined"
         ? null
         : window.setTimeout(() => {
-            setProductionNumber("");
+            setProductionNumber(generateProductionNumber());
             setRawItems([]);
             setFinishedItems([]);
             setFinishedCode("");
@@ -971,6 +1069,7 @@ function ProductionModal({
             setPackagingQty("");
             setRawScanCode("");
             setRawScanQty("");
+            setCurrentStep(0);
             if (rawScanInputRef.current) {
               rawScanInputRef.current.focus();
             }
@@ -978,12 +1077,7 @@ function ProductionModal({
     return () => {
       if (timer) window.clearTimeout(timer);
     };
-  }, [isOpen, normalizedRawSource]);
-
-  const handleGenerateProductionNumber = () => {
-    const auto = `PRD-${Date.now().toString(36).toUpperCase()}`;
-    setProductionNumber(auto);
-  };
+  }, [generateProductionNumber, isOpen, normalizedRawSource]);
 
   const handleAddRawFromScan = () => {
     const code = rawScanCode.trim().toUpperCase();
@@ -1042,6 +1136,18 @@ function ProductionModal({
 
   const handleClearRawItems = () => {
     setRawItems([]);
+  };
+
+  const handleNextStep = () => {
+    if (selectedRawItems.length === 0) {
+      toast.error("Tambahkan bahan baku terlebih dahulu");
+      return;
+    }
+    setCurrentStep(1);
+  };
+
+  const handlePrevStep = () => {
+    setCurrentStep(0);
   };
 
   const handleAddFinished = () => {
@@ -1125,9 +1231,10 @@ function ProductionModal({
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!productionNumber.trim()) {
-      toast.error("Nomor produksi wajib diisi");
-      return;
+    let normalizedProductionNumber = productionNumber.trim();
+    if (!normalizedProductionNumber) {
+      normalizedProductionNumber = generateProductionNumber();
+      setProductionNumber(normalizedProductionNumber);
     }
 
     if (!location) {
@@ -1135,7 +1242,6 @@ function ProductionModal({
       return;
     }
 
-    const selectedRawItems = rawItems.filter((item) => item.qty > 0);
     if (!selectedRawItems.length || !finishedItems.length) {
       toast.error("Minimal 1 bahan baku dan 1 produk jadi");
       return;
@@ -1155,7 +1261,7 @@ function ProductionModal({
       setSubmitting(true);
 
       await createProductionRecord({
-        productionNumber: productionNumber.trim(),
+        productionNumber: normalizedProductionNumber,
         location,
         rawItems: selectedRawItems.map((item) => ({
           kode: item.kode,
@@ -1189,8 +1295,6 @@ function ProductionModal({
 
   if (!isOpen) return null;
 
-  const usedRawCount = rawItems.filter((item) => item.qty > 0).length;
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
       <div className="w-full max-w-3xl rounded-2xl bg-white p-5 shadow-xl">
@@ -1219,382 +1323,473 @@ function ProductionModal({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4 text-sm">
-          <div className="grid gap-4 xl:grid-cols-[1.2fr,0.8fr]">
-            <div className="rounded-2xl border bg-white/80 p-4 text-xs text-gray-600 shadow-sm">
-              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <div className="font-semibold text-gray-700">
-                    Bahan Baku Dipakai
+        <form onSubmit={handleSubmit} className="text-sm">
+          <div className="rounded-2xl border bg-white/80 p-4 text-xs text-gray-600 shadow-sm">
+            <div className="mb-4">
+              <div className="flex items-center gap-2 text-xs font-semibold">
+                {STEP_LABELS.map((label, idx) => {
+                  const isActive = idx === currentStep;
+                  const isDone = idx < currentStep;
+                  return (
+                    <Fragment key={label}>
+                      {idx > 0 && (
+                        <div
+                          className={`h-[2px] flex-1 ${
+                            idx <= currentStep ? "bg-red-400" : "bg-gray-200"
+                          }`}
+                        />
+                      )}
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-bold ${
+                            isDone
+                              ? "bg-red-500 text-white"
+                              : isActive
+                                ? "bg-red-100 text-red-600"
+                                : "bg-gray-100 text-gray-400"
+                          }`}
+                        >
+                          {idx + 1}
+                        </span>
+                        <span
+                          className={
+                            isActive
+                              ? "text-gray-900"
+                              : isDone
+                                ? "text-gray-600"
+                                : "text-gray-400"
+                          }
+                        >
+                          {label}
+                        </span>
+                      </div>
+                    </Fragment>
+                  );
+                })}
+              </div>
+            </div>
+
+            {currentStep === 0 && (
+              <>
+                <div className="rounded-2xl border bg-white/80 p-4">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <div className="font-semibold text-gray-700">
+                        Bahan Baku Dipakai
+                      </div>
+                      <p className="text-[11px] text-gray-500">
+                        Scan / ketik kode bahan baku lalu isi jumlah yang akan dipakai.
+                        Sistem otomatis menarik stok dari buffer lokasi ini.
+                      </p>
+                    </div>
+                    {rawItems.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleClearRawItems}
+                        className="rounded-lg border px-3 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-100"
+                      >
+                        Kosongkan daftar
+                      </button>
+                    )}
                   </div>
-                  <p className="text-[11px] text-gray-500">
-                    Scan / ketik kode bahan baku lalu isi jumlah yang akan dipakai.
-                    Sistem otomatis menarik stok dari buffer lokasi ini.
-                  </p>
+
+                  <div className="rounded-xl bg-gray-50/70 p-3">
+                    <div className="grid grid-cols-[2fr,1fr,auto] items-end gap-3">
+                    <div className="relative">
+                      <label className="mb-1 block text-xs font-medium text-gray-700">
+                        Scan / Kode Bahan Baku
+                      </label>
+                      <input
+                        ref={rawScanInputRef}
+                        type="text"
+                        value={rawScanCode}
+                        onChange={(e) => {
+                          const next = e.target.value.toUpperCase();
+                          setRawScanCode(next);
+                          setRawSuggestionsOpen(next.trim().length > 0);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            handleAddRawFromScan();
+                          }
+                        }}
+                        className="w-full rounded-lg border bg-white px-3 py-2 text-sm font-mono outline-none focus:ring-2 focus:ring-red-500/60"
+                        placeholder="Ketik / scan kode bahan baku"
+                      />
+                      {rawSearchTerm && rawSuggestionsOpen && (
+                        <div className="absolute left-0 right-0 z-10 mt-1 max-h-48 overflow-y-auto rounded-lg border bg-white text-xs shadow-lg">
+                          {!rawSearchReady ? (
+                            <div className="px-3 py-2 text-gray-500">
+                              Ketik minimal {MIN_RAW_SEARCH_LENGTH} karakter untuk melihat daftar bahan baku.
+                            </div>
+                          ) : rawSuggestions.length === 0 ? (
+                            <div className="px-3 py-2 text-gray-500">
+                              Tidak ada kode yang cocok.
+                            </div>
+                          ) : (
+                            rawSuggestions.map((item) => {
+                              const info = bufferInfoByCode.get(item.kode);
+                              const available = Number(info?.invoiceQty || 0) || 0;
+                              const used = selectedRawQtyMap.get(item.kode) || 0;
+                              const remaining = Math.max(available - used, 0);
+                              return (
+                                <button
+                                  type="button"
+                                  key={item.kode}
+                                  className="flex w-full items-center justify-between border-b px-3 py-2 text-left hover:bg-gray-50"
+                                  onClick={() => {
+                                    // set kode di input, lalu TUTUP dropdown
+                                    setRawScanCode(item.kode);
+                                    setRawSuggestionsOpen(false);
+                                    rawScanInputRef.current?.focus();
+                                  }}
+                                >
+                                  <div className="pr-3">
+                                    <div className="font-mono text-gray-800">
+                                      {item.kode}
+                                    </div>
+                                    <div className="text-[10px] text-gray-500">
+                                      {item.name || "-"}
+                                    </div>
+                                  </div>
+                                  <div className="text-right text-[10px] text-gray-500">
+                                    Sisa {remaining}/{available}
+                                  </div>
+                                </button>
+                              );
+                            })
+                          )}
+                        </div>
+                      )}
+
+                    </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-gray-700">
+                          Jumlah
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={rawScanQty}
+                          onChange={(e) => setRawScanQty(e.target.value)}
+                          className="w-full rounded-lg border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-500/60"
+                          placeholder="Qty"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleAddRawFromScan}
+                        className="mb-0.5 inline-flex items-center justify-center rounded-lg bg-amber-500 px-3 py-2 text-xs font-medium text-white hover:bg-amber-600"
+                      >
+                        Tambah
+                      </button>
+                    </div>
+
+                    {rawScanCode.trim() && (
+                      <div className="mt-2 text-[11px] text-gray-500">
+                        {scanBufferInfo
+                          ? `Stok buffer: ${scanAvailable} | Sudah dipilih: ${scanUsed} | Sisa: ${scanRemaining}`
+                          : "Kode ini belum ada di buffer produksi."}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mt-3 rounded-2xl border bg-white">
+                    {rawItems.length === 0 ? (
+                      <div className="p-4 text-xs text-gray-500">
+                        Belum ada bahan baku dipilih. Gunakan kolom di atas untuk
+                        scan & jumlah bahan baku yang akan dipakai.
+                      </div>
+                    ) : (
+                      <table className="min-w-full text-xs text-gray-700">
+                        <thead className="bg-gray-50 text-[11px] uppercase text-gray-500">
+                          <tr>
+                            <th className="px-3 py-2 text-left">No.</th>
+                            <th className="px-3 py-2 text-left">Kode</th>
+                            <th className="px-3 py-2 text-left">Nama</th>
+                            <th className="px-3 py-2 text-right">Jumlah</th>
+                            <th className="px-3 py-2" />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rawItems.map((it, idx) => (
+                            <tr key={it.kode} className="border-t last:border-b">
+                              <td className="px-3 py-1 text-xs">{idx + 1}</td>
+                              <td className="px-3 py-1 font-mono text-xs">
+                                {it.kode}
+                              </td>
+                              <td className="px-3 py-1 text-xs">
+                                {it.name || "-"}
+                              </td>
+                              <td className="px-3 py-1 text-right">{it.qty}</td>
+                              <td className="px-3 py-1 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveRawItem(it.kode)}
+                                  className="text-[11px] text-red-500 hover:text-red-600"
+                                >
+                                  Hapus
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+
+                  {rawItems.length > 0 && (
+                    <div className="mt-2 flex justify-between text-[11px] text-gray-500">
+                      <span>Total bahan baku unik: {rawItems.length}</span>
+                      <button
+                        type="button"
+                        onClick={handleClearRawItems}
+                        className="text-red-500 hover:text-red-600"
+                      >
+                        Kosongkan
+                      </button>
+                    </div>
+                  )}
                 </div>
-                {rawItems.length > 0 && (
+
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
                   <button
                     type="button"
-                    onClick={handleClearRawItems}
-                    className="rounded-lg border px-3 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-100"
+                    onClick={onClose}
+                    className="rounded-lg border px-4 py-2 text-xs font-medium text-gray-700 hover:bg-gray-100"
                   >
-                    Kosongkan daftar
+                    Batal
                   </button>
-                )}
-              </div>
+                  <button
+                    type="button"
+                    onClick={handleNextStep}
+                    disabled={selectedRawItems.length === 0}
+                    className="rounded-lg bg-red-500 px-4 py-2 text-xs font-medium text-white hover:bg-red-600 disabled:opacity-60"
+                  >
+                    Lanjut Produk
+                  </button>
+                </div>
+              </>
+            )}
 
-              <div className="rounded-xl bg-gray-50/70 p-3">
+            {currentStep === 1 && (
+              <div className="space-y-4">
+                <div className="rounded-lg border bg-gray-50 p-3 text-xs text-gray-500">
+                  <div className="font-semibold text-gray-700">
+                    Nomor Produksi
+                  </div>
+                  <div className="mt-1 font-mono text-sm text-gray-900">
+                    {productionNumber || "Menyiapkan nomor..."}
+                  </div>
+                  <p className="text-[11px] text-gray-500">
+                    Nomor dibuat otomatis ketika form dibuka.
+                  </p>
+                </div>
+
+                <div className="rounded-lg border bg-gray-50 p-3 text-[11px] text-gray-500">
+                  Total bahan baku dipakai: {usedRawCount}
+                </div>
+
+                <div className="space-y-2 rounded-lg border bg-gray-50 p-3 text-xs text-gray-600">
+                  <div className="font-semibold text-gray-700">Kemasan</div>
+                  <div className="grid grid-cols-[2fr,1fr] items-end gap-3">
+                    <div>
+                      <label className="mb-1 block text-[11px] font-medium text-gray-700">
+                        Kode Kemasan
+                      </label>
+                      <select
+                        value={packagingCode}
+                        onChange={(e) => setPackagingCode(e.target.value)}
+                        className="w-full rounded-lg border px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-red-500/60"
+                      >
+                        <option value="">Pilih kemasan (opsional)</option>
+                        {DUMMY_PACKAGING_OPTIONS.map((item) => (
+                          <option key={item.code} value={item.code}>
+                            {item.code} - {item.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-[11px] font-medium text-gray-700">
+                        Jumlah Kemasan
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={packagingQty}
+                        onChange={(e) => setPackagingQty(e.target.value)}
+                        className="w-full rounded-lg border px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-red-500/60"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-gray-400">
+                    Sementara kemasan menggunakan daftar dummy, belum cek stok per lokasi.
+                  </p>
+                </div>
+
+
                 <div className="grid grid-cols-[2fr,1fr,auto] items-end gap-3">
-                  <div>
+                  <div className="relative">
                     <label className="mb-1 block text-xs font-medium text-gray-700">
-                      Scan / Kode Bahan Baku
+                      Kode Produk Jadi
                     </label>
                     <input
-                      ref={rawScanInputRef}
                       type="text"
-                      value={rawScanCode}
-                      onChange={(e) => setRawScanCode(e.target.value.toUpperCase())}
+                      value={finishedCode}
+                      onChange={(e) => {
+                        const next = e.target.value.toUpperCase();
+                        setFinishedCode(next);
+                        setFinishedOpen(
+                          next.trim().length >= MIN_FINISHED_SEARCH_LENGTH,
+                        );
+                      }}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
                           e.preventDefault();
-                          handleAddRawFromScan();
                         }
                       }}
-                      className="w-full rounded-lg border bg-white px-3 py-2 text-sm font-mono outline-none focus:ring-2 focus:ring-red-500/60"
-                      placeholder="Ketik / scan kode bahan baku"
+                      className="w-full rounded-lg border px-3 py-2 text-sm font-mono outline-none focus:ring-2 focus:ring-red-500/60"
+                      placeholder="Ketik minimal 3 karakter kode / nama"
                     />
+
+                    {finishedOpen && (
+                      <div className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border bg-white text-xs shadow-lg">
+                        {!finishedSearchReady ? (
+                          <div className="px-3 py-2 text-gray-500">
+                            Ketik minimal {MIN_FINISHED_SEARCH_LENGTH} karakter untuk mencari produk.
+                          </div>
+                        ) : finishedSuggestions.length === 0 ? (
+                          <div className="px-3 py-2 text-gray-500">
+                            Tidak ada produk jadi yang cocok.
+                          </div>
+                        ) : (
+                          finishedSuggestions.map((item) => (
+                            <button
+                              key={item.code}
+                              type="button"
+                              className="flex w-full items-center justify-between border-b px-3 py-2 text-left hover:bg-gray-50"
+                              onClick={() => {
+                                setFinishedCode(item.code || "");
+                                if (!finishedQty) {
+                                  setFinishedQty("1");
+                                }
+                                setFinishedOpen(false);
+                              }}
+                            >
+                              <span className="font-mono text-gray-800">
+                                {item.code}
+                              </span>
+                              <span className="truncate pl-3 text-[11px] text-gray-500">
+                                {item.name}
+                              </span>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
                   </div>
+
                   <div>
                     <label className="mb-1 block text-xs font-medium text-gray-700">
                       Jumlah
                     </label>
                     <input
                       type="number"
-                      min="0"
-                      step="1"
-                      value={rawScanQty}
-                      onChange={(e) => setRawScanQty(e.target.value)}
-                      className="w-full rounded-lg border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-500/60"
-                      placeholder="Qty"
+                      min="1"
+                      value={finishedQty}
+                      onChange={(e) => setFinishedQty(e.target.value)}
+                      className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-500/60"
                     />
                   </div>
                   <button
                     type="button"
-                    onClick={handleAddRawFromScan}
-                    className="mb-0.5 inline-flex items-center justify-center rounded-lg bg-amber-500 px-3 py-2 text-xs font-medium text-white hover:bg-amber-600"
+                    onClick={handleAddFinished}
+                    className="mb-0.5 inline-flex items-center justify-center rounded-lg bg-emerald-500 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-600"
                   >
                     Tambah
                   </button>
                 </div>
 
-                {rawScanCode.trim() && (
-                  <div className="mt-2 text-[11px] text-gray-500">
-                    {scanBufferInfo
-                      ? `Stok buffer: ${scanAvailable} • Sudah dipilih: ${scanUsed} • Sisa: ${scanRemaining}`
-                      : "Kode ini belum ada di buffer produksi."}
-                  </div>
-                )}
-              </div>
-
-              <div className="mt-3 rounded-2xl border bg-white">
-                {rawItems.length === 0 ? (
-                  <div className="p-4 text-xs text-gray-500">
-                    Belum ada bahan baku dipilih. Gunakan kolom di atas untuk
-                    scan & jumlah bahan baku yang akan dipakai.
-                  </div>
-                ) : (
-                  <table className="min-w-full text-xs text-gray-700">
-                    <thead className="bg-gray-50 text-[11px] uppercase text-gray-500">
-                      <tr>
-                        <th className="px-3 py-2 text-left">No.</th>
-                        <th className="px-3 py-2 text-left">Kode</th>
-                        <th className="px-3 py-2 text-left">Nama</th>
-                        <th className="px-3 py-2 text-right">Jumlah</th>
-                        <th className="px-3 py-2" />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rawItems.map((it, idx) => (
-                        <tr key={it.kode} className="border-t last:border-b">
-                          <td className="px-3 py-1 text-xs">{idx + 1}</td>
-                          <td className="px-3 py-1 font-mono text-xs">
-                            {it.kode}
-                          </td>
-                          <td className="px-3 py-1 text-xs">
-                            {it.name || "-"}
-                          </td>
-                          <td className="px-3 py-1 text-right">{it.qty}</td>
-                          <td className="px-3 py-1 text-center">
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveRawItem(it.kode)}
-                              className="text-[11px] text-red-500 hover:text-red-600"
-                            >
-                              Hapus
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-
-              {rawItems.length > 0 && (
-                <div className="mt-2 flex justify-between text-[11px] text-gray-500">
-                  <span>Total bahan baku unik: {rawItems.length}</span>
-                  <button
-                    type="button"
-                    onClick={handleClearRawItems}
-                    className="text-red-500 hover:text-red-600"
-                  >
-                    Kosongkan
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-1">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-gray-700">
-                  Nomor Produksi
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={productionNumber}
-                    onChange={(e) => setProductionNumber(e.target.value)}
-                    className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-500/60"
-                    placeholder="Contoh: PRD-00123"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleGenerateProductionNumber}
-                    className="whitespace-nowrap rounded-lg border px-3 py-2 text-[11px] font-medium text-gray-700 hover:bg-gray-100"
-                    title="Generate nomor produksi otomatis"
-                  >
-                    Auto
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-2 rounded-lg border bg-gray-50 p-3 text-xs text-gray-600">
-                <div className="font-semibold text-gray-700">Kemasan</div>
-                <div className="grid grid-cols-[2fr,1fr] items-end gap-3">
-                  <div>
-                    <label className="mb-1 block text-[11px] font-medium text-gray-700">
-                      Kode Kemasan
-                    </label>
-                    <select
-                      value={packagingCode}
-                      onChange={(e) => setPackagingCode(e.target.value)}
-                      className="w-full rounded-lg border px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-red-500/60"
-                    >
-                      <option value="">Pilih kemasan</option>
-                      {Array.isArray(packagingCatalog) &&
-                        packagingCatalog.map((item) => (
-                          <option key={item.code} value={item.code}>
-                            {item.code} - {item.name}
-                          </option>
-                        ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-[11px] font-medium text-gray-700">
-                      Jumlah Kemasan
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      value={packagingQty}
-                      onChange={(e) => setPackagingQty(e.target.value)}
-                      className="w-full rounded-lg border px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-red-500/60"
-                    />
-                  </div>
-                </div>
-                <p className="text-[10px] text-gray-400">
-                  Data kemasan diambil dari master Kemasan sesuai lokasi.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-[2fr,1fr,auto] items-end gap-3">
-                <div className="relative">
-                  <label className="mb-1 block text-xs font-medium text-gray-700">
-                    Kode Produk Jadi
-                  </label>
-                  <input
-                    type="text"
-                    value={finishedCode}
-                    onChange={(e) => {
-                      const next = e.target.value.toUpperCase();
-                      setFinishedCode(next);
-                      setFinishedOpen(next.trim().length >= 3);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        // biasanya user pilih dari dropdown dulu
-                      }
-                    }}
-                    className="w-full rounded-lg border px-3 py-2 text-sm font-mono outline-none focus:ring-2 focus:ring-red-500/60"
-                    placeholder="Ketik minimal 3 karakter kode / nama"
-                  />
-
-                  {finishedOpen && finishedCode.trim().length >= 3 && (
-                    <div className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border bg-white text-xs shadow-lg">
-                      {(() => {
-                        const q = finishedCode.trim().toUpperCase();
-
-                        const allMatched = (productCatalog || []).filter(
-                          (item) => {
-                            const code = (item.code || "").toUpperCase();
-                            const name = (item.name || "").toUpperCase();
-                            return code.includes(q) || name.includes(q);
-                          }
-                        );
-
-                        const byLocation = allMatched.filter((item) => {
-                          if (!location) return true;
-                          const stocks = Array.isArray(item.stocks)
-                            ? item.stocks
-                            : [];
-                          if (!stocks.length) return false;
-                          const locKey = String(location || "").toUpperCase();
-                          return stocks.some((s) => {
-                            const loc = String(s.location || "").toUpperCase();
-                            const qty = Number(s.quantity || 0) || 0;
-                            return loc === locKey && qty > 0;
-                          });
-                        });
-
-                        const toShow =
-                          byLocation.length > 0 ? byLocation : allMatched;
-
-                        if (toShow.length === 0) {
-                          return (
-                            <div className="px-3 py-2 text-gray-500">
-                              Tidak ada produk jadi yang cocok.
-                            </div>
-                          );
-                        }
-
-                        return toShow.map((item) => (
-                          <button
-                            key={item.code}
-                            type="button"
-                            className="flex w-full items-center justify-between border-b px-3 py-2 text-left hover:bg-gray-50"
-                            onClick={() => {
-                              setFinishedCode(item.code || "");
-                              if (!finishedQty) {
-                                setFinishedQty("1");
-                              }
-                              setFinishedOpen(false);
-                            }}
-                          >
-                            <span className="font-mono text-gray-800">
-                              {item.code}
-                            </span>
-                            <span className="truncate pl-3 text-[11px] text-gray-500">
-                              {item.name}
-                            </span>
-                          </button>
-                        ));
-                      })()}
+                <div className="max-h-52 overflow-y-auto rounded-lg border">
+                  {finishedItems.length === 0 ? (
+                    <div className="p-3 text-xs text-gray-500">
+                      Belum ada produk jadi. Isi kode dan jumlah lalu klik Tambah.
                     </div>
+                  ) : (
+                    <table className="min-w-full text-xs text-gray-700">
+                      <thead className="bg-gray-50 text-[11px] uppercase text-gray-500">
+                        <tr>
+                          <th className="px-3 py-2 text-left">Kode</th>
+                          <th className="px-3 py-2 text-left">Nama</th>
+                          <th className="px-3 py-2 text-right">Qty</th>
+                          <th className="px-3 py-2" />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {finishedItems.map((it) => (
+                          <tr key={it.kode} className="border-t last:border-b">
+                            <td className="px-3 py-1 font-mono text-xs">
+                              {it.kode}
+                            </td>
+                            <td className="px-3 py-1 text-xs">
+                              {it.name || "-"}
+                            </td>
+                            <td className="px-3 py-1 text-right">{it.qty}</td>
+                            <td className="px-3 py-1 text-center">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setFinishedItems((prev) =>
+                                    prev.filter((p) => p.kode !== it.kode)
+                                  )
+                                }
+                                className="text-[11px] text-red-500 hover:text-red-600"
+                              >
+                                Hapus
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   )}
                 </div>
 
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-gray-700">
-                    Jumlah
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={finishedQty}
-                    onChange={(e) => setFinishedQty(e.target.value)}
-                    className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-red-500/60"
-                  />
+                <div className="rounded-lg border bg-gray-50 p-3 text-[11px] text-gray-500">
+                  Total produk jadi: {finishedItems.length}
                 </div>
-                <button
-                  type="button"
-                  onClick={handleAddFinished}
-                  className="mb-0.5 inline-flex items-center justify-center rounded-lg bg-emerald-500 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-600"
-                >
-                  Tambah
-                </button>
-              </div>
 
-              <div className="max-h-52 overflow-y-auto rounded-lg border">
-                {finishedItems.length === 0 ? (
-                  <div className="p-3 text-xs text-gray-500">
-                    Belum ada produk jadi. Isi kode dan jumlah lalu klik Tambah.
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={handlePrevStep}
+                    className="rounded-lg border px-4 py-2 text-xs font-medium text-gray-700 hover:bg-gray-100"
+                  >
+                    Kembali
+                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={onClose}
+                      className="rounded-lg border px-4 py-2 text-xs font-medium text-gray-700 hover:bg-gray-100"
+                    >
+                      Batal
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={submitting}
+                      className="inline-flex items-center gap-2 rounded-lg bg-red-500 px-4 py-2 text-xs font-medium text-white hover:bg-red-600 disabled:opacity-60"
+                    >
+                      <FiCheckCircle />
+                      {submitting ? "Menyimpan..." : "Simpan Produksi"}
+                    </button>
                   </div>
-                ) : (
-                  <table className="min-w-full text-xs text-gray-700">
-                    <thead className="bg-gray-50 text-[11px] uppercase text-gray-500">
-                      <tr>
-                        <th className="px-3 py-2 text-left">Kode</th>
-                        <th className="px-3 py-2 text-left">Nama</th>
-                        <th className="px-3 py-2 text-right">Qty</th>
-                        <th className="px-3 py-2" />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {finishedItems.map((it) => (
-                        <tr key={it.kode} className="border-t last:border-b">
-                          <td className="px-3 py-1 font-mono text-xs">
-                            {it.kode}
-                          </td>
-                          <td className="px-3 py-1 text-xs">
-                            {it.name || "-"}
-                          </td>
-                          <td className="px-3 py-1 text-right">{it.qty}</td>
-                          <td className="px-3 py-1 text-center">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setFinishedItems((prev) =>
-                                  prev.filter((p) => p.kode !== it.kode)
-                                )
-                              }
-                              className="text-[11px] text-red-500 hover:text-red-600"
-                            >
-                              Hapus
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
+                </div>
               </div>
-
-              <div className="mt-3 flex justify-end text-xs text-gray-500">
-                <span>
-                  Total bahan baku dipakai: {usedRawCount} • Total produk:{" "}
-                  {finishedItems.length}
-                </span>
-              </div>
-
-              <div className="mt-3 flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="rounded-lg border px-4 py-2 text-xs font-medium text-gray-700 hover:bg-gray-100"
-                >
-                  Batal
-                </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="inline-flex items-center gap-2 rounded-lg bg-red-500 px-4 py-2 text-xs font-medium text-white hover:bg-red-600 disabled:opacity-60"
-                >
-                  <FiCheckCircle />
-                  {submitting ? "Menyimpan..." : "Simpan Produksi"}
-                </button>
-              </div>
-            </div>
+            )}
           </div>
         </form>
       </div>

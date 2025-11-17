@@ -73,8 +73,10 @@ async function createProduction(req, res, next) {
 
   const productionNumber = String(payload.productionNumber || "").trim();
   const rawLocation = String(payload.location || "").trim(); // lokasi bahan baku / produksi
-  const invoiceNumberRaw = String(payload.invoiceNumber || "").trim().toUpperCase(); // opsional sekarang
-  const packagingPayload = payload.packaging;
+  const invoiceNumberRaw = String(payload.invoiceNumber || "")
+    .trim()
+    .toUpperCase(); // opsional
+  const packagingPayload = payload.packaging || null;
 
   if (!productionNumber) {
     return next(createError(400, "Nomor produksi wajib diisi"));
@@ -86,7 +88,9 @@ async function createProduction(req, res, next) {
     );
   }
 
-  const rawItemsPayload = Array.isArray(payload.rawItems) ? payload.rawItems : [];
+  const rawItemsPayload = Array.isArray(payload.rawItems)
+    ? payload.rawItems
+    : [];
   const finishedItemsPayload = Array.isArray(payload.finishedItems)
     ? payload.finishedItems
     : [];
@@ -101,9 +105,8 @@ async function createProduction(req, res, next) {
 
   const normalizedLocation = normalizeLocation(rawLocation);
   const locationKey = normalizedLocation || "GLOBAL";
-  const packagingLocationKey =
-    normalizeLocation(packagingPayload?.location) || locationKey;
 
+  // Buffer bahan baku
   const buffer = await ProductionBuffer.findOne({
     user: req.user._id,
     location: normalizedLocation,
@@ -126,6 +129,7 @@ async function createProduction(req, res, next) {
   let totalInQuantity = 0;
   let packagingSummary = null;
 
+  // === BAHAN BAKU KELUAR ===
   for (const item of rawItemsPayload) {
     const productCode = String(item.productCode || item.kode || "")
       .trim()
@@ -177,6 +181,7 @@ async function createProduction(req, res, next) {
     totalOutQuantity += quantity;
   }
 
+  // === PRODUK JADI MASUK (update Product.stocks) ===
   for (const item of finishedItemsPayload) {
     const productCode = String(item.productCode || item.kode || "")
       .trim()
@@ -207,9 +212,13 @@ async function createProduction(req, res, next) {
     }
 
     const stocks = cloneStocks(product.stocks);
-    let entry = stocks.find((stockEntry) => stockEntry.location === locationKey);
+    let entry = stocks.find(
+      (stockEntry) => stockEntry.location === locationKey,
+    );
     const currentQty =
-      entry && typeof entry.quantity === "number" && Number.isFinite(entry.quantity)
+      entry &&
+      typeof entry.quantity === "number" &&
+      Number.isFinite(entry.quantity)
         ? entry.quantity
         : 0;
     const nextQty = currentQty + quantity;
@@ -237,60 +246,28 @@ async function createProduction(req, res, next) {
     totalInQuantity += quantity;
   }
 
-  if (packagingPayload && packagingPayload.productCode && packagingPayload.quantity) {
-    const packagingCode = String(packagingPayload.productCode || "")
+  // === KEMASAN DUMMY (TANPA CEK STOK) ===
+  if (packagingPayload) {
+    const packagingCode = String(
+      packagingPayload.productCode || packagingPayload.code || "",
+    )
       .trim()
       .toUpperCase();
-    const packagingQty = Number(packagingPayload.quantity || 0) || 0;
+    const packagingQty =
+      typeof packagingPayload.quantity === "number"
+        ? packagingPayload.quantity
+        : Number(packagingPayload.qty || 0) || 0;
+
+    const packagingLocation =
+      normalizeLocation(packagingPayload.location) || locationKey;
 
     if (packagingCode && packagingQty > 0) {
-      // eslint-disable-next-line no-await-in-loop
-      const material = await Packaging.findOne({ code: packagingCode });
-      if (!material) {
-        return next(
-          createError(
-            404,
-            `Kemasan dengan kode ${packagingCode} tidak ditemukan`,
-          ),
-        );
-      }
-
-      const stocks = cloneStocks(material.stocks);
-      let entry = stocks.find(
-        (stockEntry) => stockEntry.location === packagingLocationKey,
-      );
-      const currentQty =
-        entry && typeof entry.quantity === "number" && Number.isFinite(entry.quantity)
-          ? entry.quantity
-          : 0;
-
-      if (packagingQty > currentQty) {
-        return next(
-          createError(
-            400,
-            `Stok kemasan ${packagingCode} di lokasi ${locationKey} tidak mencukupi`,
-          ),
-        );
-      }
-
-      const nextQty = currentQty - packagingQty;
-
-      if (!entry) {
-        entry = { location: packagingLocationKey, quantity: nextQty };
-        stocks.push(entry);
-      } else {
-        entry.quantity = nextQty;
-      }
-
-      material.stocks = stocks;
-      material.stock = sumStocks(stocks);
-      // eslint-disable-next-line no-await-in-loop
-      await material.save();
-
+      // Hanya simpan sebagai ringkasan, TIDAK menyentuh stok kemasan
       packagingSummary = {
         productCode: packagingCode,
-        productName: material.name,
+        productName: packagingPayload.name || "", // optional dari frontend
         quantity: packagingQty,
+        location: packagingLocation,
       };
     }
   }
