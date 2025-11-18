@@ -113,3 +113,83 @@ export async function destroyProductionReject({ productCode, location, quantity 
   );
   return data?.data;
 }
+
+export async function fetchProductionStockRequests({
+  page,
+  limit,
+  status,
+  targetLocation,
+  originLocation,
+} = {}) {
+  const { data } = await apiClient.get("/warehouse/production-stock-requests", {
+    params: {
+      page,
+      limit,
+      status,
+      targetLocation,
+      originLocation,
+    },
+  });
+  return data?.data || { items: [], total: 0, pages: 1 };
+}
+
+export async function createProductionStockRequest(payload) {
+  const body = {
+    originLocation: payload.originLocation,
+    targetLocation: payload.targetLocation,
+    items: payload.items?.map((item) => ({
+      productCode: item.productCode || item.kode,
+      quantity: Number(item.quantity ?? item.qty ?? 0),
+    })),
+  };
+  const { data } = await apiClient.post(
+    "/warehouse/production-stock-requests",
+    body,
+  );
+  return data?.data;
+}
+
+export async function approveProductionStockRequest(id, options = {}) {
+  const { note, items } = options || {};
+  const trimmed = typeof note === "string" ? note.trim() : "";
+  const body = {};
+  if (trimmed) {
+    body.note = trimmed;
+  }
+  if (Array.isArray(items) && items.length) {
+    body.items = items
+      .map((item) => {
+        const code = String(item.productCode || item.kode || "").trim();
+        const quantity = Number(item.quantity ?? item.qty ?? 0);
+        if (!code || !Number.isFinite(quantity) || quantity <= 0) {
+          return null;
+        }
+        return {
+          productCode: code.toUpperCase(),
+          quantity,
+        };
+      })
+      .filter(Boolean);
+    if (!body.items.length) {
+      delete body.items;
+    }
+  }
+  const { data } = await apiClient.post(
+    `/warehouse/production-stock-requests/${id}/approve`,
+    body,
+  );
+  return data?.data;
+}
+
+export async function rejectProductionStockRequest(id, note) {
+  const trimmed = note?.trim();
+  const body = {};
+  if (trimmed) {
+    body.note = trimmed;
+  }
+  const { data } = await apiClient.post(
+    `/warehouse/production-stock-requests/${id}/reject`,
+    body,
+  );
+  return data?.data;
+}

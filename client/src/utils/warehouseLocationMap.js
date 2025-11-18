@@ -16,6 +16,17 @@ export function getRawLocationForProductionLocation(productionLocation) {
   return RAW_LOCATIONS[0];
 }
 
+export function getProductionLocationForRawLocation(rawLocation) {
+  const index = RAW_LOCATIONS.indexOf(rawLocation);
+  if (index >= 0 && PRODUCTION_LOCATIONS[index]) {
+    return PRODUCTION_LOCATIONS[index];
+  }
+  if (rawLocation?.endsWith("-KTP")) return PRODUCTION_LOCATIONS[0];
+  if (rawLocation?.endsWith("-DPK")) return PRODUCTION_LOCATIONS[1];
+  if (rawLocation?.endsWith("-BGR")) return PRODUCTION_LOCATIONS[2];
+  return PRODUCTION_LOCATIONS[0];
+}
+
 export function getProductLocationForProductionLocation(productionLocation) {
   const index = PRODUCTION_LOCATIONS.indexOf(productionLocation);
   if (index >= 0 && PRODUCT_LOCATIONS[index]) {
@@ -36,5 +47,16 @@ export function getPackagingLocationForProductionLocation(productionLocation) {
   if (productionLocation?.endsWith("-DPK")) return PACKAGING_LOCATIONS[1];
   if (productionLocation?.endsWith("-BGR")) return PACKAGING_LOCATIONS[2];
   return PACKAGING_LOCATIONS[0];
+}
+
+export function getProductionLocationForProductLocation(productLocation) {
+  const index = PRODUCT_LOCATIONS.indexOf(productLocation);
+  if (index >= 0 && PRODUCTION_LOCATIONS[index]) {
+    return PRODUCTION_LOCATIONS[index];
+  }
+  if (productLocation?.endsWith("-KTP")) return PRODUCTION_LOCATIONS[0];
+  if (productLocation?.endsWith("-DPK")) return PRODUCTION_LOCATIONS[1];
+  if (productLocation?.endsWith("-BGR")) return PRODUCTION_LOCATIONS[2];
+  return PRODUCTION_LOCATIONS[0];
 }
 

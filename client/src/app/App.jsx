@@ -21,6 +21,7 @@ import SpeedshopProductsPage from "../features/warehouse/pages/SpeedshopProducts
 import SpeedshopInvoiceHistoryPage from "../features/warehouse/pages/SpeedshopInvoiceHistoryPage";
 import ProductionInvoiceHistoryPage from "../features/warehouse/pages/ProductionInvoiceHistoryPage";
 import ProductionResultsPage from "../features/warehouse/pages/ProductionResultsPage";
+import { PRODUCT_LOCATIONS } from "../constants/warehouseLocations";
 
 function App() {
   return (
@@ -41,7 +42,12 @@ function App() {
 
         <Route path="return" element={<ReturnPage />} />
 
-        <Route path="invoices-history" element={<InvoiceHistoryPage />} />
+        <Route
+          path="invoices-history"
+          element={
+            <InvoiceHistoryPage locationOptionsOverride={PRODUCT_LOCATIONS} />
+          }
+        />
 
         <Route path="productions" element={<ProductionPage />} />
 

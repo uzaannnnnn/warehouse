@@ -28,6 +28,8 @@ export default function InvoiceHistoryPage({
   locationOptionsOverride,
   locationStorageKeyOverride,
   pageTitle = "History Invoice",
+  locationToApiMapper,
+  displayLocationMapper,
 }) {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -131,7 +133,9 @@ export default function InvoiceHistoryPage({
     async function loadInvoices() {
       setLoading(true);
       try {
-        const apiLocation = warehouseCode;
+        const apiLocation = locationToApiMapper
+          ? locationToApiMapper(warehouseCode)
+          : warehouseCode;
         const data = await fetchInvoices({
           page,
           limit,
@@ -390,7 +394,9 @@ export default function InvoiceHistoryPage({
                           )}
                         </td>
                         <td className="p-3 text-xs text-gray-600">
-                          {row.location || "-"}
+                          {displayLocationMapper
+                            ? displayLocationMapper(row.location)
+                            : row.location || "-"}
                         </td>
                         <td className="p-3 text-gray-600">{invoiceDate}</td>
                         <td className="p-3 text-left font-semibold">
@@ -450,7 +456,9 @@ export default function InvoiceHistoryPage({
                                       Lokasi
                                     </div>
                                     <div className="font-medium">
-                                      {row.location || "-"}
+                                      {displayLocationMapper
+                                        ? displayLocationMapper(row.location)
+                                        : row.location || "-"}
                                     </div>
                                   </div>
                                   <div>

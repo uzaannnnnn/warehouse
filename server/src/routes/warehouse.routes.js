@@ -36,6 +36,12 @@ const {
   updateProductionQc,
 } = require("../controllers/production.controller");
 const {
+  listProductionStockRequests,
+  createProductionStockRequest,
+  approveProductionStockRequest,
+  rejectProductionStockRequest,
+} = require("../controllers/productionStockRequest.controller");
+const {
   listProductionResultStocks,
   destroyProductionReject,
 } = require("../controllers/productionResult.controller");
@@ -64,6 +70,10 @@ const {
 const {
   destroyProductionRejectSchema,
 } = require("../validations/productionResult.validation");
+const {
+  createProductionStockRequestSchema,
+  processProductionStockRequestSchema,
+} = require("../validations/productionStockRequest.validation");
 
 const router = express.Router();
 
@@ -119,6 +129,22 @@ router.post(
   "/production-results/destroy",
   validateRequest(destroyProductionRejectSchema),
   destroyProductionReject,
+);
+router.get("/production-stock-requests", listProductionStockRequests);
+router.post(
+  "/production-stock-requests",
+  validateRequest(createProductionStockRequestSchema),
+  createProductionStockRequest,
+);
+router.post(
+  "/production-stock-requests/:id/approve",
+  validateRequest(processProductionStockRequestSchema),
+  approveProductionStockRequest,
+);
+router.post(
+  "/production-stock-requests/:id/reject",
+  validateRequest(processProductionStockRequestSchema),
+  rejectProductionStockRequest,
 );
 
 router.get("/speedshop/orders", listSpeedshopOrders);

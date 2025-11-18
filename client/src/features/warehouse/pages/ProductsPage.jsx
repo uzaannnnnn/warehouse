@@ -9,6 +9,7 @@ import {
   FiArrowDownCircle,
   FiArrowUpCircle,
   FiPlus,
+  FiSend,
 } from "react-icons/fi";
 import { toast } from "sonner";
 import Pagination from "../../../components/common/Pagination";
@@ -31,13 +32,19 @@ import {
   upsertPackagingProduct,
 } from "../api/mockData";
 import { createInvoiceRecord } from "../api/invoices";
+import { createProductionStockRequest } from "../api/production";
 import { playSuccessSound } from "../../../utils/sound";
 import EmptyState from "../../../components/common/EmptyState";
 import { WarehousePageShell } from "../../../components/templates/WarehousePageShell";
 import {
+  getProductionLocationForProductLocation,
+  getRawLocationForProductionLocation,
+} from "../../../utils/warehouseLocationMap";
+import {
   RAW_LOCATIONS,
   PRODUCT_LOCATIONS,
   PACKAGING_LOCATIONS,
+  PRODUCTION_LOCATIONS,
 } from "../../../constants/warehouseLocations";
 
 const STORAGE_KEYS = {
@@ -138,6 +145,7 @@ export default function ProductsPage({
   const [printQty, setPrintQty] = useState("1");
   const [isStockOpen, setIsStockOpen] = useState(false);
   const [isStockOutOpen, setIsStockOutOpen] = useState(false);
+  const [isProductionRequestOpen, setIsProductionRequestOpen] = useState(false);
   const [productToDelete, setProductToDelete] = useState(null);
 
   const reloadLookups = useCallback(async () => {
@@ -395,12 +403,52 @@ export default function ProductsPage({
     }
   };
 
+  const handleSubmitProductionRequest = async ({ targetLocation, items }) => {
+    if (!targetLocation) {
+      toast.error("Pilih lokasi produksi terlebih dahulu");
+      return false;
+    }
+    if (!items.length) {
+      toast.info("Tambahkan minimal 1 produk sebelum mengajukan");
+      return false;
+    }
+
+    const targetRawLocation =
+      getRawLocationForProductionLocation(targetLocation);
+    if (!targetRawLocation) {
+      toast.error("Lokasi produksi tujuan tidak valid");
+      return false;
+    }
+
+    try {
+      await createProductionStockRequest({
+        originLocation: warehouseCode,
+        targetLocation: targetRawLocation,
+        items: items.map((item) => ({
+          productCode: item.kode,
+          quantity: Number(item.qty || 0),
+        })),
+      });
+      toast.success("Permintaan stok produksi berhasil diajukan");
+      playSuccessSound();
+      return true;
+    } catch (err) {
+      console.error("Gagal mengajukan permintaan produksi:", err.message);
+      toast.error(err?.message || "Gagal mengajukan permintaan stok produksi");
+      return false;
+    }
+  };
+
   const handleOpenStockIn = () => {
     setIsStockOpen(true);
   };
 
   const handleOpenStockOut = () => {
     setIsStockOutOpen(true);
+  };
+
+  const handleOpenProductionRequest = () => {
+    setIsProductionRequestOpen(true);
   };
 
   return (
@@ -455,6 +503,16 @@ export default function ProductsPage({
               <FiArrowDownCircle className="text-sm" />
               <span>Stok Masuk</span>
             </button>
+            {!isRawMode && !isPackagingMode && (
+              <button
+                type="button"
+                onClick={handleOpenProductionRequest}
+                className="flex items-center gap-1.5 rounded-lg bg-indigo-500 px-3 py-1.5 text-xs font-medium text-white shadow-sm hover:bg-indigo-600 md:text-sm"
+              >
+                <FiSend className="text-sm" />
+                <span>Stok Masuk - Produksi</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={handleOpenStockOut}
@@ -665,6 +723,16 @@ export default function ProductsPage({
         fetchFn={productSearchFetcher}
         location={warehouseCode}
       />
+      {!isRawMode && !isPackagingMode && (
+        <ProductionStockRequestModal
+          isOpen={isProductionRequestOpen}
+          onClose={() => setIsProductionRequestOpen(false)}
+          onSubmit={handleSubmitProductionRequest}
+          fetchFn={productSearchFetcher}
+          currentLocation={warehouseCode}
+          productionLocations={PRODUCTION_LOCATIONS}
+        />
+      )}
 
       <StockOutModal
         isOpen={isStockOutOpen}
@@ -868,6 +936,241 @@ function ProductSearchInput({ value, onChange, onSelect, inputRef, onEnter, fetc
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function ProductionStockRequestModal({
+  isOpen,
+  onClose,
+  onSubmit,
+  fetchFn,
+  currentLocation,
+  productionLocations = PRODUCTION_LOCATIONS,
+}) {
+  const [targetLocation, setTargetLocation] = useState(() =>
+    getProductionLocationForProductLocation(currentLocation) ||
+    productionLocations[0] ||
+    "",
+  );
+  const [kode, setKode] = useState("");
+  const [qty, setQty] = useState("");
+  const [items, setItems] = useState([]);
+  const kodeInputRef = useRef(null);
+  const totalQty = useMemo(
+    () => items.reduce((sum, item) => sum + Number(item.qty || 0), 0),
+    [items],
+  );
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const timer =
+      typeof window === "undefined"
+        ? null
+        : window.setTimeout(() => {
+            setItems([]);
+            setKode("");
+            setQty("");
+            setTargetLocation(
+              getProductionLocationForProductLocation(currentLocation) ||
+                productionLocations[0] ||
+                "",
+            );
+          }, 0);
+    return () => {
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [isOpen, currentLocation, productionLocations]);
+
+  useEffect(() => {
+    if (isOpen && kodeInputRef.current) {
+      kodeInputRef.current.focus();
+    }
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  const handleAddItem = () => {
+    const code = kode.trim();
+    const nQty = Number(qty || 0);
+    if (!code || nQty <= 0) return;
+
+    setItems((prev) => {
+      const existingIndex = prev.findIndex(
+        (it) => it.kode.toUpperCase() === code.toUpperCase(),
+      );
+      if (existingIndex !== -1) {
+        const next = [...prev];
+        next[existingIndex] = {
+          ...next[existingIndex],
+          qty: next[existingIndex].qty + nQty,
+        };
+        return next;
+      }
+      return [...prev, { kode: code, qty: nQty }];
+    });
+    setKode("");
+    setQty("");
+    if (kodeInputRef.current) kodeInputRef.current.focus();
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!targetLocation) {
+      toast.error("Pilih lokasi produksi terlebih dahulu");
+      return;
+    }
+    if (!items.length) {
+      toast.error("Tambahkan minimal 1 produk sebelum mengajukan");
+      return;
+    }
+    const success = await onSubmit({ targetLocation, items });
+    if (success !== false) {
+      onClose();
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+        <h2 className="mb-4 text-lg font-semibold text-gray-800">
+          Stok Masuk - Produksi
+        </h2>
+
+        <div className="mb-4 flex flex-wrap gap-2 text-[11px] font-medium text-gray-700">
+          {currentLocation && (
+            <span className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1">
+              <span className="mr-1 inline-block h-2 w-2 rounded-full bg-emerald-500" />
+              Lokasi produk: {currentLocation}
+            </span>
+          )}
+          {targetLocation && (
+            <span className="inline-flex items-center rounded-full bg-indigo-100 px-3 py-1 text-indigo-700">
+              <span className="mr-1 inline-block h-2 w-2 rounded-full bg-indigo-500" />
+              Tujuan produksi: {targetLocation}
+            </span>
+          )}
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4 text-sm">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-700">
+              Pilih lokasi produksi tujuan
+            </label>
+            <select
+              value={targetLocation}
+              onChange={(e) => setTargetLocation(e.target.value)}
+              className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500/60"
+            >
+              {productionLocations.map((loc) => (
+                <option key={loc} value={loc}>
+                  {loc}
+                </option>
+              ))}
+            </select>
+            <p className="mt-2 text-xs text-gray-500">
+              Permintaan akan dikirim sebagai notifikasi ke tim produksi lokasi
+              tersebut.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-[2fr,1fr,auto] items-end gap-3">
+            <ProductSearchInput
+              value={kode}
+              onChange={setKode}
+              inputRef={kodeInputRef}
+              onEnter={handleAddItem}
+              fetchFn={fetchFn}
+              onSelect={(product) => {
+                setKode(product.code);
+                setQty("1");
+                kodeInputRef.current?.focus();
+              }}
+            />
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-700">
+                Jumlah
+              </label>
+              <input
+                type="number"
+                min="1"
+                value={qty}
+                onChange={(e) => setQty(e.target.value)}
+                className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500/60"
+              />
+            </div>
+          </div>
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={handleAddItem}
+              className="inline-flex items-center rounded-lg bg-indigo-500 px-3 py-2 text-xs font-medium text-white hover:bg-indigo-600"
+            >
+              Tambah Item
+            </button>
+          </div>
+
+          <div className="max-h-52 overflow-y-auto rounded-lg border">
+            {items.length === 0 ? (
+              <div className="p-3 text-xs text-gray-500">
+                Belum ada item. Scan atau ketik kode produk lalu isi jumlah.
+              </div>
+            ) : (
+              <table className="min-w-full text-xs text-gray-700">
+                <thead className="bg-gray-50 text-[11px] uppercase text-gray-500">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Kode Produk</th>
+                    <th className="px-3 py-2 text-right">Jumlah</th>
+                    <th className="px-3 py-2" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((it) => (
+                    <tr key={it.kode} className="border-t last:border-b">
+                      <td className="px-3 py-1 font-mono text-xs">{it.kode}</td>
+                      <td className="px-3 py-1 text-right">{it.qty}</td>
+                      <td className="px-3 py-1 text-center">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setItems((prev) =>
+                              prev.filter((p) => p.kode !== it.kode),
+                            )
+                          }
+                          className="text-[11px] text-red-500 hover:text-red-600"
+                        >
+                          Hapus
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
+            <span>Total item: {items.length}</span>
+            <span>Total qty: {totalQty}</span>
+          </div>
+
+          <div className="mt-4 flex justify-end gap-2 text-xs">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border px-4 py-2 font-medium text-gray-700 hover:bg-gray-100"
+            >
+              Batal
+            </button>
+            <button
+              type="submit"
+              className="rounded-lg bg-indigo-500 px-4 py-2 font-medium text-white hover:bg-indigo-600"
+            >
+              Ajukan
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
