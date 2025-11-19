@@ -140,6 +140,7 @@ async function createMirrorInvoicesForStockRequest({
       items: buildItems(),
       totalQuantity,
       createdBy,
+      productionClaimed: true,
       meta: {
         ...baseMeta,
         mode: "production-out",

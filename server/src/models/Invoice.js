@@ -55,6 +55,9 @@ const invoiceSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    meta: {
+      type: mongoose.Schema.Types.Mixed,
+    },
     createdBy: {
       userId: mongoose.Schema.Types.ObjectId,
       name: String,

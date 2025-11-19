@@ -30,6 +30,9 @@ export default function InvoiceHistoryPage({
   pageTitle = "History Invoice",
   locationToApiMapper,
   displayLocationMapper,
+  metaSourceFilter,
+  metaModeFilter,
+  productionClaimedOnly = false,
 }) {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -142,6 +145,9 @@ export default function InvoiceHistoryPage({
           search: debouncedSearch || undefined,
           segment,
           location: apiLocation, // filter by lokasi
+          metaSource: metaSourceFilter || undefined,
+          metaMode: metaModeFilter || undefined,
+          productionClaimedOnly,
         });
         if (!active) return;
         setInvoices(Array.isArray(data?.items) ? data.items : []);
@@ -158,7 +164,17 @@ export default function InvoiceHistoryPage({
     return () => {
       active = false;
     };
-  }, [page, limit, debouncedSearch, reloadKey, segment, warehouseCode]);
+  }, [
+    page,
+    limit,
+    debouncedSearch,
+    reloadKey,
+    segment,
+    warehouseCode,
+    metaSourceFilter,
+    metaModeFilter,
+    productionClaimedOnly,
+  ]);
 
   const pageRows =
     filterType === "all"
@@ -313,7 +329,14 @@ export default function InvoiceHistoryPage({
                     ? "bg-emerald-100 text-emerald-600"
                     : "bg-red-100 text-red-600";
                   const invoiceDate = row.date
-                    ? new Date(row.date).toLocaleDateString("id-ID")
+                    ? new Date(row.date).toLocaleString("id-ID", {
+                        day: "2-digit",
+                        month: "2-digit",
+                        year: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        hour12: false,
+                      })
                     : "-";
                   const totalQty =
                     row.totalQuantity ??

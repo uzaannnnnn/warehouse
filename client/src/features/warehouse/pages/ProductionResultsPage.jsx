@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { FiBox, FiPrinter, FiSearch, FiTrash2, FiX } from "react-icons/fi";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { FiBox, FiInbox, FiPrinter, FiSearch, FiTrash2, FiX } from "react-icons/fi";
 import { toast } from "sonner";
 
 import Pagination from "../../../components/common/Pagination";
@@ -10,16 +10,33 @@ import { WarehousePageShell } from "../../../components/templates/WarehousePageS
 import {
   fetchProductionResults,
   destroyProductionReject,
+  fetchProductionStockRequests,
+  approveProductionStockRequest,
+  rejectProductionStockRequest,
 } from "../api/production";
 import { PRODUCTION_LOCATIONS } from "../../../constants/warehouseLocations";
 import { WAREHOUSE_STORAGE_KEYS } from "../../../constants/warehouseStorageKeys";
-import { getRawLocationForProductionLocation } from "../../../utils/warehouseLocationMap";
+import {
+  getRawLocationForProductionLocation,
+  getProductionLocationForRawLocation,
+} from "../../../utils/warehouseLocationMap";
 
 const SEARCH_DEBOUNCE_MS = 300;
 const LOCATION_KEY = WAREHOUSE_STORAGE_KEYS.productionLocation;
 const numberFormatter = new Intl.NumberFormat("id-ID");
 const formatNumberValue = (value) =>
   numberFormatter.format(Number.isFinite(Number(value)) ? Number(value) : 0);
+const STOCK_REQUEST_LIMIT = 5;
+
+function getStockRequestId(request) {
+  return (
+    request?._id ||
+    request?.id ||
+    request?.requestNumber ||
+    request?.referenceNumber ||
+    null
+  );
+}
 
 export default function ProductionResultsPage() {
   const locationOptions = PRODUCTION_LOCATIONS;
@@ -71,6 +88,18 @@ export default function ProductionResultsPage() {
   const [printQty, setPrintQty] = useState("1");
   const [rejectToDestroy, setRejectToDestroy] = useState(null);
   const [rejectDestroyQty, setRejectDestroyQty] = useState("");
+  const [stockRequestsLoading, setStockRequestsLoading] = useState(false);
+  const [stockRequests, setStockRequests] = useState([]);
+  const [stockRequestPage, setStockRequestPage] = useState(1);
+  const [stockRequestTotalItems, setStockRequestTotalItems] = useState(0);
+  const [stockRequestTotalPages, setStockRequestTotalPages] = useState(1);
+  const [stockRequestReloadKey, setStockRequestReloadKey] = useState(0);
+  const [requestActionState, setRequestActionState] = useState({
+    id: null,
+    type: null,
+  });
+  const [partialApprovalRequest, setPartialApprovalRequest] = useState(null);
+  const [partialApprovalSubmitting, setPartialApprovalSubmitting] = useState(false);
 
   const rawLocation = getRawLocationForProductionLocation(warehouseCode);
 
@@ -113,6 +142,176 @@ export default function ProductionResultsPage() {
       active = false;
     };
   }, [page, limit, debouncedSearch, rawLocation, reloadKey]);
+
+  useEffect(() => {
+    if (!warehouseCode && !rawLocation) return;
+    let active = true;
+    async function loadStockRequests() {
+      setStockRequestsLoading(true);
+      try {
+        const targetCandidates = Array.from(
+          new Set(
+            [rawLocation, warehouseCode].filter(
+              (loc) => typeof loc === "string" && loc.trim().length,
+            ),
+          ),
+        );
+        if (!targetCandidates.length) {
+          if (active) {
+            setStockRequests([]);
+            setStockRequestTotalItems(0);
+            setStockRequestTotalPages(1);
+          }
+          return;
+        }
+
+        const responses = await Promise.all(
+          targetCandidates.map((target) =>
+            fetchProductionStockRequests({
+              page: 1,
+              limit: 200,
+              status: "pending",
+              targetLocation: target,
+            }).catch((err) => {
+              console.error(
+                "Gagal memuat permintaan stok produksi:",
+                err?.message || err,
+              );
+              return null;
+            }),
+          ),
+        );
+        if (!active) return;
+
+        const combined = [];
+        responses.forEach((data) => {
+          if (Array.isArray(data?.items)) {
+            combined.push(...data.items);
+          }
+        });
+
+        const deduped = [];
+        const seen = new Set();
+        combined.forEach((item, idx) => {
+          const id = getStockRequestId(item) || `legacy-${idx}`;
+          if (seen.has(id)) return;
+          seen.add(id);
+          deduped.push(item);
+        });
+
+        deduped.sort((a, b) => {
+          const aTime = new Date(a?.createdAt || 0).getTime();
+          const bTime = new Date(b?.createdAt || 0).getTime();
+          return bTime - aTime;
+        });
+
+        const total = deduped.length;
+        const totalPages = Math.max(1, Math.ceil(total / STOCK_REQUEST_LIMIT));
+        const safePage = Math.min(stockRequestPage, totalPages) || 1;
+        const startIndexPage = (safePage - 1) * STOCK_REQUEST_LIMIT;
+        const paginated = deduped.slice(
+          startIndexPage,
+          startIndexPage + STOCK_REQUEST_LIMIT,
+        );
+
+        setStockRequests(paginated);
+        setStockRequestTotalItems(total);
+        setStockRequestTotalPages(totalPages);
+        if (safePage !== stockRequestPage) {
+          setStockRequestPage(safePage);
+        }
+      } catch (err) {
+        if (!active) return;
+        console.error(
+          "Gagal memuat permintaan stok produksi:",
+          err?.message || err,
+        );
+      } finally {
+        if (active) {
+          setStockRequestsLoading(false);
+        }
+      }
+    }
+    loadStockRequests();
+    return () => {
+      active = false;
+    };
+  }, [warehouseCode, rawLocation, stockRequestPage, stockRequestReloadKey]);
+
+  const refreshStockRequests = useCallback(() => {
+    setStockRequestReloadKey((key) => key + 1);
+  }, []);
+
+  const isRequestProcessing = (requestId, action) =>
+    requestActionState.id === requestId && requestActionState.type === action;
+
+  const handleApproveStockRequest = async (request) => {
+    const requestId = getStockRequestId(request);
+    if (!requestId) return;
+    setRequestActionState({ id: requestId, type: "approve" });
+    try {
+      await approveProductionStockRequest(requestId);
+      toast.success("Permintaan stok produksi disetujui");
+      refreshStockRequests();
+    } catch (err) {
+      console.error("Gagal menyetujui permintaan produksi:", err?.message);
+      toast.error(
+        err?.response?.data?.message || "Gagal menyetujui permintaan produksi",
+      );
+    } finally {
+      setRequestActionState({ id: null, type: null });
+    }
+  };
+
+  const handleRejectStockRequest = async (request) => {
+    const requestId = getStockRequestId(request);
+    if (!requestId) return;
+    setRequestActionState({ id: requestId, type: "reject" });
+    try {
+      await rejectProductionStockRequest(requestId);
+      toast.success("Permintaan stok produksi ditolak");
+      refreshStockRequests();
+    } catch (err) {
+      console.error("Gagal menolak permintaan produksi:", err?.message);
+      toast.error(
+        err?.response?.data?.message || "Gagal menolak permintaan produksi",
+      );
+    } finally {
+      setRequestActionState({ id: null, type: null });
+    }
+  };
+
+  const handleOpenPartialApproval = (request) => {
+    setPartialApprovalRequest(request);
+  };
+
+  const handleClosePartialApproval = () => {
+    if (partialApprovalSubmitting) return;
+    setPartialApprovalRequest(null);
+  };
+
+  const handlePartialApprovalSubmit = async (selectedItems) => {
+    if (!partialApprovalRequest) return;
+    const requestId = getStockRequestId(partialApprovalRequest);
+    if (!requestId) return;
+    setPartialApprovalSubmitting(true);
+    setRequestActionState({ id: requestId, type: "partial" });
+    try {
+      await approveProductionStockRequest(requestId, { items: selectedItems });
+      toast.success("Permintaan stok produksi sebagian disetujui");
+      setPartialApprovalRequest(null);
+      refreshStockRequests();
+    } catch (err) {
+      console.error("Gagal menyetujui sebagian permintaan:", err?.message);
+      toast.error(
+        err?.response?.data?.message ||
+          "Gagal menyetujui sebagian permintaan produksi",
+      );
+    } finally {
+      setPartialApprovalSubmitting(false);
+      setRequestActionState({ id: null, type: null });
+    }
+  };
 
   const startIndex = totalItems ? (page - 1) * limit + 1 : 0;
   const hasAnyResults = totalItems > 0;
@@ -270,6 +469,174 @@ export default function ProductionResultsPage() {
         </div>
       }
     >
+      <div className="mb-6 rounded-2xl border border-indigo-100 bg-white p-4 shadow-sm">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-sm font-semibold text-indigo-700">
+            <FiInbox />
+            Permintaan Stok Produksi
+          </div>
+          <div className="text-xs text-gray-500">
+            {stockRequestsLoading
+              ? "Memuat permintaan..."
+              : stockRequestTotalItems > 0
+                ? `${stockRequestTotalItems} permintaan menunggu`
+                : `Belum ada permintaan untuk ${warehouseCode}`}
+          </div>
+        </div>
+
+        {stockRequestsLoading && stockRequests.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-indigo-200 bg-indigo-50/70 px-4 py-3 text-xs text-indigo-700">
+            Memuat data permintaan stok produksi...
+          </div>
+        ) : stockRequests.length === 0 ? (
+          <div className="rounded-lg border border-dashed px-4 py-3 text-xs text-gray-500">
+            Belum ada pengajuan stok dari lokasi produk lain.
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {stockRequests.map((request, idx) => {
+              const requestId =
+                getStockRequestId(request) || `request-${idx}`;
+              const items = Array.isArray(request?.items) ? request.items : [];
+              const totalItems = items.length;
+              const rejectBusy = isRequestProcessing(requestId, "reject");
+              const approveBusy = isRequestProcessing(requestId, "approve");
+              const partialBusy = isRequestProcessing(requestId, "partial");
+              const isBusy = requestActionState.id === requestId;
+              const displayTargetLocation =
+                getProductionLocationForRawLocation(request?.targetLocation) ||
+                request?.targetLocation ||
+                "-";
+
+              return (
+                <div
+                  key={requestId}
+                  className="rounded-xl border bg-white px-4 py-3 text-sm text-gray-700 shadow-sm"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <div className="text-[11px] uppercase tracking-wide text-gray-500">
+                        Permintaan dari
+                      </div>
+                      <div className="text-base font-semibold text-gray-900">
+                        {request?.originLocation || "-"}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        Tujuan: {displayTargetLocation}
+                      </div>
+                    </div>
+                    {totalItems > 0 && (
+                      <div className="rounded-full bg-indigo-50 px-3 py-1 text-[11px] font-semibold text-indigo-600">
+                        {totalItems} item diminta
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mt-3 rounded-lg border">
+                    <table className="min-w-full text-xs text-gray-700">
+                      <thead className="bg-gray-50 text-[11px] uppercase text-gray-500">
+                        <tr>
+                          <th className="px-3 py-2 text-left">Produk</th>
+                          <th className="px-3 py-2 text-right">Jumlah</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {items.length === 0 ? (
+                          <tr>
+                            <td
+                              colSpan={2}
+                              className="px-3 py-4 text-center text-gray-500"
+                            >
+                              Tidak ada detail item.
+                            </td>
+                          </tr>
+                        ) : (
+                          items.map((item, itemIdx) => (
+                            <tr
+                              key={`${requestId}-${item.productCode || itemIdx}`}
+                              className="border-t last:border-b-0"
+                            >
+                              <td className="px-3 py-2">
+                                <div className="font-mono text-xs text-gray-900">
+                                  {item.productCode}
+                                </div>
+                                <div className="text-[11px] text-gray-500">
+                                  {item.productName}
+                                </div>
+                              </td>
+                              <td className="px-3 py-2 text-right font-semibold text-gray-800">
+                                {item.quantity}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-500">
+                    <span>
+                      Dibuat:{" "}
+                      {request?.createdAt
+                        ? new Date(request.createdAt).toLocaleString("id-ID")
+                        : "-"}
+                    </span>
+                    <div className="flex flex-wrap gap-2 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => handleRejectStockRequest(request)}
+                        disabled={isBusy}
+                        className={`rounded-lg border px-4 py-2 font-medium transition ${
+                          rejectBusy
+                            ? "cursor-not-allowed border-gray-200 text-gray-400"
+                            : "border-red-200 text-red-600 hover:bg-red-50"
+                        }`}
+                      >
+                        {rejectBusy ? "Menolak..." : "Tolak"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenPartialApproval(request)}
+                        disabled={isBusy}
+                        className={`rounded-lg border px-4 py-2 font-medium transition ${
+                          partialBusy
+                            ? "cursor-not-allowed border-gray-200 text-gray-400"
+                            : "border-indigo-200 text-indigo-600 hover:bg-indigo-50"
+                        }`}
+                      >
+                        {partialBusy ? "Memproses..." : "Setujui Beberapa"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleApproveStockRequest(request)}
+                        disabled={isBusy}
+                        className={`rounded-lg px-4 py-2 font-medium text-white transition ${
+                          approveBusy
+                            ? "cursor-not-allowed bg-gray-300"
+                            : "bg-emerald-500 hover:bg-emerald-600"
+                        }`}
+                      >
+                        {approveBusy ? "Menyetujui..." : "Setujui"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {stockRequestTotalPages > 1 && (
+          <div className="mt-4 flex justify-end">
+            <Pagination
+              currentPage={stockRequestPage}
+              totalPages={stockRequestTotalPages}
+              onPageChange={setStockRequestPage}
+            />
+          </div>
+        )}
+      </div>
+
       {loading ? (
         <div className="animate-pulse py-20 text-center text-gray-500">
           <svg
@@ -338,6 +705,14 @@ export default function ProductionResultsPage() {
         onClose={closeDestroyModal}
         onConfirm={handleConfirmDestroyReject}
       />
+      {partialApprovalRequest && (
+        <PartialApprovalModal
+          request={partialApprovalRequest}
+          onClose={handleClosePartialApproval}
+          onSubmit={handlePartialApprovalSubmit}
+          submitting={partialApprovalSubmitting}
+        />
+      )}
     </WarehousePageShell>
   );
 }
@@ -571,6 +946,239 @@ function RejectDestroyModal({
             Hapus
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function PartialApprovalModal({ request, onClose, onSubmit, submitting }) {
+  const [rows, setRows] = useState([]);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!request) return;
+    const initialized = (Array.isArray(request.items) ? request.items : []).map(
+      (item) => {
+        const qty = Number(item.quantity || 0) || 0;
+        return {
+          productCode: item.productCode,
+          productName: item.productName || item.productCode,
+          maxQuantity: qty,
+          quantityInput: String(qty),
+          approved: qty > 0,
+        };
+      },
+    );
+    setRows(initialized);
+    setError("");
+  }, [request]);
+
+  if (!request) return null;
+
+  const handleToggleItem = (code) => {
+    setRows((prev) =>
+      prev.map((row) =>
+        row.productCode === code ? { ...row, approved: !row.approved } : row,
+      ),
+    );
+  };
+
+  const handleQuantityChange = (code, value) => {
+    setRows((prev) =>
+      prev.map((row) => {
+        if (row.productCode !== code) return row;
+        if (!value.trim().length) {
+          return { ...row, quantityInput: "" };
+        }
+        const parsed = Number(value);
+        if (!Number.isFinite(parsed)) {
+          return row;
+        }
+        const normalized = Math.max(
+          1,
+          Math.min(row.maxQuantity, Math.floor(parsed)),
+        );
+        return { ...row, quantityInput: String(normalized) };
+      }),
+    );
+  };
+
+  const selectedSummary = useMemo(() => {
+    let totalQty = 0;
+    let selectedCount = 0;
+    rows.forEach((row) => {
+      const qty = Number(row.quantityInput || 0) || 0;
+      if (row.approved && qty > 0) {
+        selectedCount += 1;
+        totalQty += qty;
+      }
+    });
+    return { totalQty, selectedCount };
+  }, [rows]);
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (submitting) return;
+
+    const payload = rows
+      .filter((row) => row.approved)
+      .map((row) => ({
+        productCode: row.productCode,
+        quantity: Number(row.quantityInput || 0) || 0,
+        maxQuantity: row.maxQuantity,
+      }))
+      .filter((row) => row.quantity > 0);
+
+    if (!payload.length) {
+      setError("Pilih minimal 1 produk untuk disetujui.");
+      return;
+    }
+
+    const invalid = payload.find(
+      (row) => row.quantity > row.maxQuantity || row.quantity < 1,
+    );
+    if (invalid) {
+      setError(
+        `Jumlah untuk ${invalid.productCode} harus antara 1 dan ${invalid.maxQuantity}`,
+      );
+      return;
+    }
+
+    setError("");
+    onSubmit(
+      payload.map((row) => ({
+        productCode: row.productCode,
+        quantity: row.quantity,
+      })),
+    );
+  };
+
+  const displayTarget =
+    getProductionLocationForRawLocation(request.targetLocation) ||
+    request.targetLocation ||
+    "-";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div className="w-full max-w-3xl rounded-2xl bg-white p-6 shadow-2xl">
+        <div className="mb-4">
+          <h2 className="text-lg font-semibold text-gray-800">
+            Setujui Beberapa Produk
+          </h2>
+          <p className="mt-1 text-xs text-gray-500">
+            Memproses permintaan dari{" "}
+            <span className="font-semibold text-gray-700">
+              {request.originLocation || "-"}
+            </span>{" "}
+            menuju{" "}
+            <span className="font-semibold text-indigo-600">{displayTarget}</span>
+            . Nonaktifkan produk yang tidak ingin dikirim atau ubah jumlahnya
+            sesuai ketersediaan stok.
+          </p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="max-h-80 overflow-y-auto rounded-xl border">
+            <table className="min-w-full text-xs text-gray-700">
+              <thead className="bg-gray-50 text-[11px] uppercase text-gray-500">
+                <tr>
+                  <th className="px-3 py-2 text-left">Pilih</th>
+                  <th className="px-3 py-2 text-left">Produk</th>
+                  <th className="px-3 py-2 text-right">Diminta</th>
+                  <th className="px-3 py-2 text-right">Disetujui</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={4}
+                      className="px-3 py-6 text-center text-gray-500"
+                    >
+                      Tidak ada item pada permintaan ini.
+                    </td>
+                  </tr>
+                ) : (
+                  rows.map((row) => (
+                    <tr key={row.productCode} className="border-t last:border-b-0">
+                      <td className="px-3 py-2">
+                        <label className="inline-flex items-center gap-2 text-xs font-medium text-gray-700">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                            checked={row.approved}
+                            onChange={() => handleToggleItem(row.productCode)}
+                          />
+                          Pilih
+                        </label>
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="font-mono text-xs text-gray-900">
+                          {row.productCode}
+                        </div>
+                        <div className="text-[11px] text-gray-500">
+                          {row.productName || "-"}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 text-right font-semibold text-gray-700">
+                        {row.maxQuantity}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <input
+                          type="number"
+                          min="1"
+                          max={row.maxQuantity}
+                          value={row.quantityInput}
+                          onChange={(e) =>
+                            handleQuantityChange(row.productCode, e.target.value)
+                          }
+                          disabled={!row.approved || row.maxQuantity <= 0}
+                          className="w-24 rounded-lg border px-2 py-1 text-right font-semibold text-gray-800 outline-none focus:ring-2 focus:ring-indigo-500/60 disabled:cursor-not-allowed disabled:bg-gray-50"
+                        />
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {error && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-xs text-red-600">
+              {error}
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-gray-600">
+            <div>
+              <span className="font-semibold text-gray-800">
+                {selectedSummary.selectedCount}
+              </span>{" "}
+              produk dipilih — total{" "}
+              <span className="font-semibold text-gray-800">
+                {selectedSummary.totalQty}
+              </span>{" "}
+              qty
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-lg border px-4 py-2 font-medium text-gray-700 hover:bg-gray-100"
+                disabled={submitting}
+              >
+                Batal
+              </button>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="rounded-lg bg-indigo-500 px-4 py-2 font-medium text-white hover:bg-indigo-600 disabled:opacity-60"
+              >
+                {submitting ? "Menyetujui..." : "Setujui Pilihan"}
+              </button>
+            </div>
+          </div>
+        </form>
       </div>
     </div>
   );

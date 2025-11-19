@@ -18,6 +18,9 @@ async function listInvoices(req, res) {
   const typeQuery = (req.query.type || "").toLowerCase();
   const segmentQuery = (req.query.segment || "").toLowerCase();
   const locationQuery = (req.query.location || "").trim();
+  const metaSourceQuery = (req.query.metaSource || "").trim().toLowerCase();
+  const metaModeQuery = (req.query.metaMode || "").trim().toLowerCase();
+  const productionClaimedQuery = (req.query.productionClaimed || "").trim().toLowerCase();
   const filter = {};
 
   if (typeQuery === "in" || typeQuery === "out") {
@@ -28,6 +31,17 @@ async function listInvoices(req, res) {
   }
   if (locationQuery) {
     filter.location = locationQuery;
+  }
+  if (metaSourceQuery) {
+    filter["meta.source"] = metaSourceQuery;
+  }
+  if (metaModeQuery) {
+    filter["meta.mode"] = metaModeQuery;
+  }
+  if (["1", "true", "yes"].includes(productionClaimedQuery)) {
+    filter.productionClaimed = true;
+  } else if (["0", "false", "no"].includes(productionClaimedQuery)) {
+    filter.productionClaimed = { $ne: true };
   }
   if (search) {
     filter.$or = [
@@ -254,6 +268,7 @@ async function createInvoice(req, res, next) {
             name: req.user.name,
           }
         : undefined,
+      meta: payload.meta,
     });
   } catch (error) {
     if (error.code === 11000) {

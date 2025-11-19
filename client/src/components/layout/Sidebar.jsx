@@ -47,13 +47,13 @@ export default function Sidebar() {
       items: [
         {
           label: "Produksi",
-          path: "/warehouse/production-results",
-          icon: <FiBox />,
+          path: "/warehouse/productions",
+          icon: <FiFileText />,
         },
         {
           label: "Hasil Produksi",
-          path: "/warehouse/productions",
-          icon: <FiFileText />,
+          path: "/warehouse/production-results",
+          icon: <FiBox />,
         },
         {
           label: "History Invoice",

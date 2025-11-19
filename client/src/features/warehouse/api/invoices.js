@@ -1,6 +1,15 @@
 import apiClient from "../../../lib/apiClient";
 
-export async function fetchInvoices({ page, limit, search, segment, location } = {}) {
+export async function fetchInvoices({
+  page,
+  limit,
+  search,
+  segment,
+  location,
+  metaSource,
+  metaMode,
+  productionClaimedOnly,
+} = {}) {
   const { data } = await apiClient.get("/warehouse/invoices", {
     params: {
       page,
@@ -8,6 +17,9 @@ export async function fetchInvoices({ page, limit, search, segment, location } =
       search,
       segment,
       location,
+      metaSource,
+      metaMode,
+      productionClaimed: productionClaimedOnly ? "true" : undefined,
     },
   });
   return data?.data || { items: [], total: 0, pages: 1 };
