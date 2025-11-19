@@ -15,6 +15,7 @@ export default function ProductionInvoiceHistoryPage() {
       locationStorageKeyOverride={WAREHOUSE_STORAGE_KEYS.productionLocation}
       locationToApiMapper={getRawLocationForProductionLocation}
       displayLocationMapper={getProductionLocationForRawLocation}
+      productionClaimedOnly={true}
     />
   );
 }

@@ -13,21 +13,6 @@ export default function Sidebar() {
 
   const sections = [
     {
-      title: "Kemasan",
-      items: [
-        {
-          label: "Kemasan",
-          path: "/warehouse/packaging",
-          icon: <FiBox />,
-        },
-        {
-          label: "History Invoice",
-          path: "/warehouse/packaging-invoices-history",
-          icon: <FiFileText />,
-        },
-      ],
-    },
-    {
       title: "Bahan Baku",
       items: [
         {
@@ -43,17 +28,32 @@ export default function Sidebar() {
       ],
     },
     {
+      title: "Kemasan",
+      items: [
+        {
+          label: "Kemasan",
+          path: "/warehouse/packaging",
+          icon: <FiBox />,
+        },
+        {
+          label: "History Invoice",
+          path: "/warehouse/packaging-invoices-history",
+          icon: <FiFileText />,
+        },
+      ],
+    },
+    {
       title: "Produksi",
       items: [
         {
           label: "Produksi",
-          path: "/warehouse/productions",
-          icon: <FiFileText />,
+          path: "/warehouse/production-results",
+          icon: <FiBox />,
         },
         {
           label: "Hasil Produksi",
-          path: "/warehouse/production-results",
-          icon: <FiBox />,
+          path: "/warehouse/productions",
+          icon: <FiFileText />,
         },
         {
           label: "History Invoice",
