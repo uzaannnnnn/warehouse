@@ -88,6 +88,14 @@ export default function InvoiceHistoryPage({
     if (typeof window === "undefined") return;
     if (!canEditLocation) return;
     window.localStorage.setItem(warehouseStorageKey, warehouseCode);
+    window.dispatchEvent(
+      new CustomEvent("warehouse:location-storage-change", {
+        detail: {
+          storageKey: warehouseStorageKey,
+          value: warehouseCode,
+        },
+      }),
+    );
   }, [warehouseCode, warehouseStorageKey, canEditLocation]);
 
   useEffect(() => {

@@ -211,6 +211,14 @@ export default function ProductsPage({
     if (typeof window === "undefined") return;
     if (!warehouseCode) return;
     window.localStorage.setItem(warehouseStorageKey, warehouseCode);
+    window.dispatchEvent(
+      new CustomEvent("warehouse:location-storage-change", {
+        detail: {
+          storageKey: warehouseStorageKey,
+          value: warehouseCode,
+        },
+      }),
+    );
   }, [warehouseCode, warehouseStorageKey]);
 
   useEffect(() => {

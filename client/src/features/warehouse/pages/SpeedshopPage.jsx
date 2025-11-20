@@ -24,6 +24,7 @@ import {
   SPEEDSHOP_LOCATIONS,
   PRODUCT_LOCATIONS,
 } from "../../../constants/warehouseLocations";
+import { WAREHOUSE_STORAGE_KEYS } from "../../../constants/warehouseStorageKeys";
 import {
   fetchSpeedshopOrders,
   createSpeedshopOrder,
@@ -33,7 +34,8 @@ import {
 } from "../api/speedshop";
 import { fetchProductsPaged, formatRupiah } from "../api/mockData";
 
-const SPEEDSHOP_LOCATION_STORAGE_KEY = "warehouseSpeedshopLocation";
+const SPEEDSHOP_LOCATION_STORAGE_KEY =
+  WAREHOUSE_STORAGE_KEYS.speedshopLocation || "warehouseCode_speedshop";
 
 const ORDER_TYPES = [
   { value: "parts-only", label: "Hanya Beli Parts" },
@@ -84,13 +86,25 @@ const STATUS_FILTERS = [
 
 const PAYMENT_OPTIONS = ["Cash", "Transfer"];
 
-const initialLocation = SPEEDSHOP_LOCATIONS[0] || PRODUCT_LOCATIONS[0] || "";
+const fallbackSpeedshopLocation =
+  SPEEDSHOP_LOCATIONS[0] || PRODUCT_LOCATIONS[0] || "";
+
+function resolveInitialSpeedshopLocation() {
+  if (typeof window === "undefined") {
+    return fallbackSpeedshopLocation;
+  }
+  const saved = window.localStorage.getItem(SPEEDSHOP_LOCATION_STORAGE_KEY);
+  if (saved && SPEEDSHOP_LOCATIONS.includes(saved)) {
+    return saved;
+  }
+  return fallbackSpeedshopLocation;
+}
 
 function buildDefaultForm(locationOverride) {
   return {
     orderType: "parts-only",
     orderDate: new Date().toISOString().slice(0, 10),
-    location: locationOverride || initialLocation,
+    location: locationOverride || fallbackSpeedshopLocation,
     invoiceNumber: "",
     customerName: "",
     customerPhone: "",
@@ -106,7 +120,10 @@ function buildDefaultForm(locationOverride) {
 }
 
 export default function SpeedshopPage() {
-  const [formState, setFormState] = useState(buildDefaultForm());
+  const initialLocationValue = resolveInitialSpeedshopLocation();
+  const [formState, setFormState] = useState(() =>
+    buildDefaultForm(initialLocationValue),
+  );
   const [parts, setParts] = useState([]);
   const [services, setServices] = useState([]);
   const [serviceCatalog, setServiceCatalog] = useState([]);
@@ -118,18 +135,7 @@ export default function SpeedshopPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [locationFilter, setLocationFilter] = useState(() => {
-    if (typeof window === "undefined") {
-      return initialLocation;
-    }
-    const saved = window.localStorage.getItem(
-      SPEEDSHOP_LOCATION_STORAGE_KEY,
-    );
-    if (saved && SPEEDSHOP_LOCATIONS.includes(saved)) {
-      return saved;
-    }
-    return initialLocation;
-  });
+  const [locationFilter, setLocationFilter] = useState(initialLocationValue);
   const [page, setPage] = useState(1);
   const limit = 8;
   const [totalItems, setTotalItems] = useState(0);
@@ -168,13 +174,68 @@ export default function SpeedshopPage() {
       SPEEDSHOP_LOCATION_STORAGE_KEY,
       locationFilter,
     );
+    window.dispatchEvent(
+      new CustomEvent("warehouse:location-storage-change", {
+        detail: {
+          storageKey: SPEEDSHOP_LOCATION_STORAGE_KEY,
+          value: locationFilter,
+        },
+      }),
+    );
   }, [locationFilter]);
 
   useEffect(() => {
+    const handleExternalLocation = (value) => {
+      if (typeof value !== "string") return;
+      if (!SPEEDSHOP_LOCATIONS.includes(value)) return;
+      setLocationFilter((prev) => (prev === value ? prev : value));
+    };
+
+    const storageListener = (event) => {
+      if (event.key === SPEEDSHOP_LOCATION_STORAGE_KEY) {
+        handleExternalLocation(event.newValue);
+      }
+    };
+
+    const broadcastListener = (event) => {
+      const detail = event?.detail || {};
+      if (detail.storageKey === SPEEDSHOP_LOCATION_STORAGE_KEY) {
+        handleExternalLocation(detail.value);
+      }
+    };
+
+    window.addEventListener("storage", storageListener);
+    window.addEventListener(
+      "warehouse:location-storage-change",
+      broadcastListener,
+    );
+    return () => {
+      window.removeEventListener("storage", storageListener);
+      window.removeEventListener(
+        "warehouse:location-storage-change",
+        broadcastListener,
+      );
+    };
+  }, []);
+
+  useEffect(() => {
     if (!SPEEDSHOP_LOCATIONS.includes(locationFilter)) {
-      setLocationFilter(initialLocation);
+      setLocationFilter(fallbackSpeedshopLocation);
     }
   }, [locationFilter]);
+
+  useEffect(() => {
+    if (!locationFilter) return;
+    if (editingOrder) return;
+    setFormState((prev) => {
+      if (prev.location === locationFilter) return prev;
+      return { ...prev, location: locationFilter };
+    });
+    if (parts.length) {
+      toast.info("Daftar parts dikosongkan karena lokasi diganti");
+      setParts([]);
+    }
+  }, [locationFilter, editingOrder, parts.length]);
 
   useEffect(() => {
     setPage(1);
@@ -335,7 +396,7 @@ export default function SpeedshopPage() {
       orderDate: order.orderDate
         ? new Date(order.orderDate).toISOString().slice(0, 10)
         : new Date().toISOString().slice(0, 10),
-      location: order.location || initialLocation,
+      location: order.location || fallbackSpeedshopLocation,
       invoiceNumber: order.invoiceNumber || "",
       customerName: order.customerName || "",
       customerPhone: order.customerPhone || "",
