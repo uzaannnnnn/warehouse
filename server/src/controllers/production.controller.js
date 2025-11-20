@@ -2,6 +2,7 @@ const createError = require("http-errors");
 const Production = require("../models/Production");
 const RawMaterial = require("../models/RawMaterial");
 const Product = require("../models/Product");
+const Invoice = require("../models/Invoice");
 const Packaging = require("../models/Packaging");
 const ProductionResultStock = require("../models/ProductionResultStock");
 const { normalizeLocation, cloneStocks, sumStocks } = require("../utils/stockUtils");
@@ -11,6 +12,14 @@ function parsePagination(query) {
   const page = Math.max(1, Number(query.page) || 1);
   const limit = Math.min(100, Math.max(1, Number(query.limit) || 10));
   return { page, limit };
+}
+
+function generatePackagingInvoiceNumber() {
+  return `PKG-OUT-${Date.now().toString(36).toUpperCase()}-${Math.floor(
+    Math.random() * 1000,
+  )
+    .toString()
+    .padStart(3, "0")}`;
 }
 
 async function listProductions(req, res) {
@@ -115,6 +124,7 @@ async function createProduction(req, res, next) {
   const bufferItems = Array.isArray(buffer?.items) ? buffer.items : [];
 
   const availableByCode = new Map();
+  const bufferInfoByCode = new Map();
   bufferItems.forEach((item) => {
     const code = String(item.productCode || "").trim().toUpperCase();
     if (!code) return;
@@ -122,12 +132,20 @@ async function createProduction(req, res, next) {
     if (!Number.isFinite(qty) || qty <= 0) return;
     const current = availableByCode.get(code) || 0;
     availableByCode.set(code, current + qty);
+    if (!bufferInfoByCode.has(code)) {
+      bufferInfoByCode.set(code, {
+        productName: item.productName || item.name || code,
+        productCategory: item.productCategory || item.category || "",
+      });
+    }
   });
 
   const items = [];
   let totalOutQuantity = 0;
   let totalInQuantity = 0;
   let packagingSummary = null;
+  let packagingStockReservation = null;
+  let packagingInvoiceDraft = null;
 
   // === BAHAN BAKU KELUAR ===
   for (const item of rawItemsPayload) {
@@ -148,13 +166,15 @@ async function createProduction(req, res, next) {
       );
     }
 
+    const bufferInfo = bufferInfoByCode.get(productCode);
+
     // eslint-disable-next-line no-await-in-loop
     const material = await RawMaterial.findOne({ code: productCode });
-    if (!material) {
+    if (!material && !bufferInfo) {
       return next(
         createError(
           404,
-          `Bahan baku dengan kode ${productCode} tidak ditemukan`,
+          `Bahan baku dengan kode ${productCode} tidak ditemukan di master atau buffer produksi`,
         ),
       );
     }
@@ -171,10 +191,10 @@ async function createProduction(req, res, next) {
     availableByCode.set(productCode, available - quantity);
 
     items.push({
-      product: material._id,
+      product: material?._id,
       productModel: "RawMaterial",
       productCode,
-      productName: material.name,
+      productName: material?.name || bufferInfo?.productName || productCode,
       quantity,
       direction: "out",
     });
@@ -247,7 +267,7 @@ async function createProduction(req, res, next) {
     totalInQuantity += quantity;
   }
 
-  // === KEMASAN DUMMY (TANPA CEK STOK) ===
+  // === PENGGUNAAN KEMASAN (CEK STOK & INVOICE) ===
   if (packagingPayload) {
     const packagingCode = String(
       packagingPayload.productCode || packagingPayload.code || "",
@@ -263,20 +283,68 @@ async function createProduction(req, res, next) {
       normalizeLocation(packagingPayload.location) || locationKey;
 
     if (packagingCode && packagingQty > 0) {
-      // Hanya simpan sebagai ringkasan, TIDAK menyentuh stok kemasan
+      const packagingDoc = await Packaging.findOne({ code: packagingCode });
+      if (!packagingDoc) {
+        return next(createError(404, `Data kemasan ${packagingCode} tidak ditemukan`));
+      }
+
+      const currentStocks = cloneStocks(packagingDoc.stocks);
+      const updatedStocks = cloneStocks(packagingDoc.stocks);
+      const entryIndex = currentStocks.findIndex(
+        (entry) => entry.location === packagingLocation,
+      );
+      const available =
+        entryIndex >= 0 ? Number(currentStocks[entryIndex].quantity || 0) : 0;
+
+      if (available < packagingQty) {
+        return next(
+          createError(
+            400,
+            `Stok kemasan ${packagingCode} di lokasi ${packagingLocation} tidak mencukupi (tersedia ${available})`,
+          ),
+        );
+      }
+
+      if (entryIndex >= 0) {
+        updatedStocks[entryIndex].quantity = available - packagingQty;
+      }
+
+      const packagingName = packagingPayload.name || packagingDoc.name || "";
+
       packagingSummary = {
         productCode: packagingCode,
-        productName: packagingPayload.name || "", // optional dari frontend
+        productName: packagingName,
         quantity: packagingQty,
         location: packagingLocation,
+      };
+
+      packagingStockReservation = {
+        doc: packagingDoc,
+        originalStocks: currentStocks,
+        updatedStocks,
+        applied: false,
+      };
+
+      packagingInvoiceDraft = {
+        location: packagingLocation,
+        items: [
+          {
+            product: packagingDoc._id,
+            productCode: packagingCode,
+            productName: packagingName || packagingCode,
+            quantity: packagingQty,
+          },
+        ],
+        totalQuantity: packagingQty,
       };
     }
   }
 
   const productionDate = payload.date ? new Date(payload.date) : new Date();
 
+  let production;
   try {
-    const production = await Production.create({
+    production = await Production.create({
       invoiceNumber: invoiceNumberRaw || undefined,
       productionNumber,
       location: normalizedLocation || undefined,
@@ -293,11 +361,76 @@ async function createProduction(req, res, next) {
         : undefined,
     });
 
+    if (packagingStockReservation) {
+      try {
+        packagingStockReservation.doc.stocks = packagingStockReservation.updatedStocks;
+        packagingStockReservation.doc.stock = sumStocks(
+          packagingStockReservation.updatedStocks,
+        );
+        await packagingStockReservation.doc.save();
+        packagingStockReservation.applied = true;
+
+        if (packagingInvoiceDraft) {
+          const packagingInvoiceNumber = generatePackagingInvoiceNumber();
+          await Invoice.create({
+            invoiceNumber: packagingInvoiceNumber,
+            type: "out",
+            segment: "raw",
+            location: packagingInvoiceDraft.location,
+            date: productionDate,
+            items: packagingInvoiceDraft.items,
+            totalQuantity: packagingInvoiceDraft.totalQuantity,
+            meta: {
+              source: "production",
+              mode: "packaging-usage",
+              productionNumber,
+            },
+            createdBy: req.user
+              ? {
+                  userId: req.user._id,
+                  name: req.user.name,
+                }
+              : undefined,
+          });
+        }
+      } catch (applyError) {
+        if (packagingStockReservation.applied && packagingStockReservation.originalStocks) {
+          try {
+            packagingStockReservation.doc.stocks = packagingStockReservation.originalStocks;
+            packagingStockReservation.doc.stock = sumStocks(
+              packagingStockReservation.originalStocks,
+            );
+            await packagingStockReservation.doc.save();
+          } catch (rollbackErr) {
+            console.error("Gagal rollback stok kemasan:", rollbackErr.message);
+          }
+          packagingStockReservation.applied = false;
+        }
+        throw applyError;
+      }
+    }
+
     return res.status(201).json({
       success: true,
       data: production,
     });
   } catch (error) {
+    if (production && production._id) {
+      await Production.findByIdAndDelete(production._id).catch(() => {});
+    }
+
+    if (packagingStockReservation && packagingStockReservation.applied === true) {
+      try {
+        packagingStockReservation.doc.stocks = packagingStockReservation.originalStocks;
+        packagingStockReservation.doc.stock = sumStocks(
+          packagingStockReservation.originalStocks,
+        );
+        await packagingStockReservation.doc.save();
+      } catch (rollbackErr) {
+        console.error("Gagal rollback stok kemasan setelah error:", rollbackErr.message);
+      }
+    }
+
     if (error.code === 11000) {
       return next(createError(409, "Nomor produksi sudah digunakan"));
     }

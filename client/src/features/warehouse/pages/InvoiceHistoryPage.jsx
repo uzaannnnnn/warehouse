@@ -15,6 +15,7 @@ import { WarehousePageShell } from "../../../components/templates/WarehousePageS
 import {
   RAW_LOCATIONS,
   PRODUCTION_LOCATIONS,
+  PRODUCT_LOCATIONS,
 } from "../../../constants/warehouseLocations";
 import { WAREHOUSE_STORAGE_KEYS } from "../../../constants/warehouseStorageKeys";
 
@@ -50,7 +51,7 @@ export default function InvoiceHistoryPage({
 
   const defaultLocationOptions = isRawSegment
     ? RAW_LOCATIONS
-    : PRODUCTION_LOCATIONS;
+    : PRODUCT_LOCATIONS;
   const locationOptions =
     Array.isArray(locationOptionsOverride) && locationOptionsOverride.length
       ? locationOptionsOverride
@@ -58,7 +59,7 @@ export default function InvoiceHistoryPage({
 
   const defaultStorageKey = isRawSegment
     ? STORAGE_KEYS.warehouseRaw
-    : WAREHOUSE_STORAGE_KEYS.productionLocation;
+    : STORAGE_KEYS.warehouseFinished;
   const warehouseStorageKey =
     locationStorageKeyOverride || defaultStorageKey;
   const canEditLocation = isRawSegment || Boolean(locationStorageKeyOverride);
@@ -100,23 +101,46 @@ export default function InvoiceHistoryPage({
       if (!locationOptions.includes(value)) return;
       setWarehouseCode((prev) => (prev === value ? prev : value));
     };
-    const customListener = (event) => handleExternalUpdate(event?.detail);
+
     const storageListener = (event) => {
       if (event.key === warehouseStorageKey) {
         handleExternalUpdate(event.newValue);
       }
     };
+
+    const locationBroadcastListener = (event) => {
+      const detail = event?.detail || {};
+      if (detail.storageKey === warehouseStorageKey) {
+        handleExternalUpdate(detail.value);
+      }
+    };
+
+    const productionListener = (event) => {
+      if (warehouseStorageKey !== WAREHOUSE_STORAGE_KEYS.productionLocation) {
+        return;
+      }
+      handleExternalUpdate(event?.detail);
+    };
+
+    window.addEventListener("storage", storageListener);
+    window.addEventListener(
+      "warehouse:location-storage-change",
+      locationBroadcastListener,
+    );
     window.addEventListener(
       "warehouse:production-location-change",
-      customListener,
+      productionListener,
     );
-    window.addEventListener("storage", storageListener);
     return () => {
+      window.removeEventListener("storage", storageListener);
+      window.removeEventListener(
+        "warehouse:location-storage-change",
+        locationBroadcastListener,
+      );
       window.removeEventListener(
         "warehouse:production-location-change",
-        customListener,
+        productionListener,
       );
-      window.removeEventListener("storage", storageListener);
     };
   }, [canEditLocation, locationOptions, warehouseStorageKey]);
 
