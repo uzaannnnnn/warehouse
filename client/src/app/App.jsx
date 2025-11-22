@@ -22,6 +22,7 @@ import SpeedshopInvoiceHistoryPage from "../features/warehouse/pages/SpeedshopIn
 import ProductionInvoiceHistoryPage from "../features/warehouse/pages/ProductionInvoiceHistoryPage";
 import ProductionResultsPage from "../features/warehouse/pages/ProductionResultsPage";
 import { PRODUCT_LOCATIONS } from "../constants/warehouseLocations";
+import AccountManagementPage from "../features/warehouse/pages/AccountManagementPage";
 
 function App() {
   return (
@@ -33,6 +34,7 @@ function App() {
         <Route index element={<WarehouseHomePage />} />
 
         <Route path="products" element={<ProductsPage />} />
+        <Route path="accounts" element={<AccountManagementPage />} />
 
         <Route path="raw-materials" element={<RawMaterialsPage />} />
         <Route path="raw-invoices-history" element={<RawMaterialsInvoiceHistoryPage />} />

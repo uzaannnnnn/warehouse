@@ -56,6 +56,7 @@ async function upsertUser(data) {
     role: data.role || "manager",
     password: data.password,
     avatarUrl: data.avatarUrl,
+    location: data.location,
   };
 
   let user = await User.findOne({ email }).select("+password");
@@ -63,6 +64,9 @@ async function upsertUser(data) {
   if (user) {
     user.name = payload.name;
     user.role = payload.role;
+    if (payload.location) {
+      user.location = payload.location;
+    }
     if (payload.avatarUrl) {
       user.avatarUrl = payload.avatarUrl;
     }

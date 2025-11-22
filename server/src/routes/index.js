@@ -1,6 +1,7 @@
 const express = require("express");
 const authRoutes = require("./auth.routes");
 const warehouseRoutes = require("./warehouse.routes");
+const managementRoutes = require("./management.routes");
 
 const router = express.Router();
 
@@ -14,5 +15,6 @@ router.get("/health", (req, res) => {
 
 router.use("/auth", authRoutes);
 router.use("/warehouse", warehouseRoutes);
+router.use("/management", managementRoutes);
 
 module.exports = router;

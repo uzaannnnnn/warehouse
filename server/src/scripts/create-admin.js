@@ -17,6 +17,7 @@ async function run() {
   const password = args.password;
   const name = args.name || "Warehouse Admin";
   const role = args.role || "admin";
+  const location = args.location;
 
   if (!email || !password) {
     logger.error("Usage: npm run seed -- --email=user@example.com --password=StrongPass123!");
@@ -31,6 +32,9 @@ async function run() {
     user.name = name;
     user.role = role;
     user.password = password;
+    if (location) {
+      user.location = location;
+    }
     await user.save();
     logger.info({ email }, "Existing user updated");
   } else {
@@ -39,6 +43,7 @@ async function run() {
       password,
       name,
       role,
+      location,
     });
     logger.info({ email }, "New user created");
   }

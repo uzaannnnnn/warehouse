@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 
-const roles = ["admin", "manager", "warehouse"];
+const roles = ["admin", "manager", "bahanbaku", "kemasan", "produksi", "speedshop", "warehouse"];
 
 const userSchema = new mongoose.Schema(
   {
@@ -22,6 +22,10 @@ const userSchema = new mongoose.Schema(
       required: true,
       minlength: 8,
       select: false,
+    },
+    location: {
+      type: String,
+      trim: true,
     },
     role: {
       type: String,
@@ -77,8 +81,11 @@ userSchema.methods.toSafeObject = function toSafeObject() {
     name: this.name,
     email: this.email,
     role: this.role,
+    status: this.status,
     avatarUrl: this.avatarUrl,
+    location: this.location,
     lastLoginAt: this.lastLoginAt,
+    createdAt: this.createdAt,
   };
 };
 
