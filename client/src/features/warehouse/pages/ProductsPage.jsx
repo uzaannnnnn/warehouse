@@ -46,6 +46,7 @@ import {
   PACKAGING_LOCATIONS,
   PRODUCTION_LOCATIONS,
 } from "../../../constants/warehouseLocations";
+import { fetchManagementLocationsByType } from "../api/management";
 
 const STORAGE_KEYS = {
   warehouseRaw: "warehouseCode_raw",
@@ -71,10 +72,11 @@ export default function ProductsPage({
     : isPackagingMode
       ? PACKAGING_LOCATIONS
       : PRODUCT_LOCATIONS;
-  const locationOptions =
+  const [locationOptions, setLocationOptions] = useState(() =>
     Array.isArray(locationOptionsOverride) && locationOptionsOverride.length
       ? locationOptionsOverride
-      : defaultLocationOptions;
+      : defaultLocationOptions,
+  );
 
   const api = useMemo(() => {
     if (isRawMode) {
@@ -206,6 +208,32 @@ export default function ProductsPage({
         : locationOptions[0],
     );
   }, [warehouseStorageKey, locationOptions]);
+
+  useEffect(() => {
+    const type = isRawMode
+      ? "bahanbaku"
+      : isPackagingMode
+        ? "kemasan"
+        : null;
+    if (!type || locationOptionsOverride?.length) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const remote = await fetchManagementLocationsByType(type);
+        if (cancelled) return;
+        const labels = remote.map((loc) => loc.label || loc.code).filter(Boolean);
+        if (labels.length) {
+          setLocationOptions(labels);
+        }
+      } catch (error) {
+        console.error("Gagal memuat lokasi dinamis:", error.message);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isRawMode, isPackagingMode, locationOptionsOverride]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;

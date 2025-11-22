@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   FiZap,
   FiPlus,
@@ -33,6 +33,7 @@ import {
   fetchSpeedshopServices,
 } from "../api/speedshop";
 import { fetchProductsPaged, formatRupiah } from "../api/mockData";
+import { fetchManagementLocationsByType } from "../api/management";
 
 const SPEEDSHOP_LOCATION_STORAGE_KEY =
   WAREHOUSE_STORAGE_KEYS.speedshopLocation || "warehouseCode_speedshop";
@@ -86,40 +87,44 @@ const STATUS_FILTERS = [
 
 const PAYMENT_OPTIONS = ["Cash", "Transfer"];
 
-const fallbackSpeedshopLocation =
-  SPEEDSHOP_LOCATIONS[0] || PRODUCT_LOCATIONS[0] || "";
-
-function resolveInitialSpeedshopLocation() {
-  if (typeof window === "undefined") {
-    return fallbackSpeedshopLocation;
-  }
-  const saved = window.localStorage.getItem(SPEEDSHOP_LOCATION_STORAGE_KEY);
-  if (saved && SPEEDSHOP_LOCATIONS.includes(saved)) {
-    return saved;
-  }
-  return fallbackSpeedshopLocation;
-}
-
-function buildDefaultForm(locationOverride) {
-  return {
-    orderType: "parts-only",
-    orderDate: new Date().toISOString().slice(0, 10),
-    location: locationOverride || fallbackSpeedshopLocation,
-    invoiceNumber: "",
-    customerName: "",
-    customerPhone: "",
-    customerAddress: "",
-    customerNote: "",
-    vehiclePlate: "",
-    vehicleType: "",
-    vehicleKm: "",
-    vehicleYear: "",
-    mechanicName: "",
-    paymentMethod: "",
-  };
-}
-
 export default function SpeedshopPage() {
+  const [speedshopLocations, setSpeedshopLocations] = useState(SPEEDSHOP_LOCATIONS);
+
+  const resolveInitialSpeedshopLocation = useCallback(() => {
+    const fallback = speedshopLocations[0] || PRODUCT_LOCATIONS[0] || "";
+    if (typeof window === "undefined") {
+      return fallback;
+    }
+    const saved = window.localStorage.getItem(SPEEDSHOP_LOCATION_STORAGE_KEY);
+    if (saved && speedshopLocations.includes(saved)) {
+      return saved;
+    }
+    return fallback;
+  }, [speedshopLocations]);
+
+  const buildDefaultForm = useCallback(
+    (locationOverride) => {
+      const fallback = speedshopLocations[0] || PRODUCT_LOCATIONS[0] || "";
+      return {
+        orderType: "parts-only",
+        orderDate: new Date().toISOString().slice(0, 10),
+        location: locationOverride || fallback,
+        invoiceNumber: "",
+        customerName: "",
+        customerPhone: "",
+        customerAddress: "",
+        customerNote: "",
+        vehiclePlate: "",
+        vehicleType: "",
+        vehicleKm: "",
+        vehicleYear: "",
+        mechanicName: "",
+        paymentMethod: "",
+      };
+    },
+    [speedshopLocations],
+  );
+
   const initialLocationValue = resolveInitialSpeedshopLocation();
   const [formState, setFormState] = useState(() =>
     buildDefaultForm(initialLocationValue),
@@ -168,6 +173,25 @@ export default function SpeedshopPage() {
   }, [searchTerm]);
 
   useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const remote = await fetchManagementLocationsByType("speedshop");
+        if (cancelled) return;
+        const labels = remote.map((loc) => loc.label || loc.code).filter(Boolean);
+        if (labels.length) {
+          setSpeedshopLocations(labels);
+        }
+      } catch (error) {
+        console.error("Gagal memuat lokasi speedshop:", error.message);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
     if (!locationFilter) return;
     window.localStorage.setItem(
@@ -187,7 +211,7 @@ export default function SpeedshopPage() {
   useEffect(() => {
     const handleExternalLocation = (value) => {
       if (typeof value !== "string") return;
-      if (!SPEEDSHOP_LOCATIONS.includes(value)) return;
+      if (!speedshopLocations.includes(value)) return;
       setLocationFilter((prev) => (prev === value ? prev : value));
     };
 
@@ -216,13 +240,15 @@ export default function SpeedshopPage() {
         broadcastListener,
       );
     };
-  }, []);
+  }, [speedshopLocations]);
 
   useEffect(() => {
-    if (!SPEEDSHOP_LOCATIONS.includes(locationFilter)) {
-      setLocationFilter(fallbackSpeedshopLocation);
-    }
-  }, [locationFilter]);
+    if (!locationFilter) return;
+    if (speedshopLocations.includes(locationFilter)) return;
+    const next = speedshopLocations[0] || PRODUCT_LOCATIONS[0] || locationFilter;
+    setLocationFilter(next);
+    setFormState((prev) => ({ ...prev, location: next }));
+  }, [speedshopLocations, locationFilter]);
 
   useEffect(() => {
     if (!locationFilter) return;
@@ -390,13 +416,14 @@ export default function SpeedshopPage() {
 
   const hydrateFormFromOrder = (order) => {
     if (!order) return;
+    const fallbackLocation = speedshopLocations[0] || PRODUCT_LOCATIONS[0] || "";
     setEditingOrder(order);
     setFormState({
       orderType: order.orderType || "parts-only",
       orderDate: order.orderDate
         ? new Date(order.orderDate).toISOString().slice(0, 10)
         : new Date().toISOString().slice(0, 10),
-      location: order.location || fallbackSpeedshopLocation,
+      location: order.location || fallbackLocation,
       invoiceNumber: order.invoiceNumber || "",
       customerName: order.customerName || "",
       customerPhone: order.customerPhone || "",
@@ -636,9 +663,9 @@ export default function SpeedshopPage() {
         <select
           value={locationFilter}
           onChange={(e) => setLocationFilter(e.target.value)}
-          className="rounded-lg border px-3 py-1 text-xs outline-none focus:ring-2 focus:ring-red-500/60"
-        >
-          {SPEEDSHOP_LOCATIONS.map((loc) => (
+      className="rounded-lg border px-3 py-1 text-xs outline-none focus:ring-2 focus:ring-red-500/60"
+    >
+          {speedshopLocations.map((loc) => (
             <option key={loc} value={loc}>
               {loc}
             </option>

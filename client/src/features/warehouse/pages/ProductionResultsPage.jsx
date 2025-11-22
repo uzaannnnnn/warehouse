@@ -20,6 +20,7 @@ import {
   getRawLocationForProductionLocation,
   getProductionLocationForRawLocation,
 } from "../../../utils/warehouseLocationMap";
+import { fetchManagementLocationsByType } from "../api/management";
 
 const SEARCH_DEBOUNCE_MS = 300;
 const LOCATION_KEY = WAREHOUSE_STORAGE_KEYS.productionLocation;
@@ -39,7 +40,7 @@ function getStockRequestId(request) {
 }
 
 export default function ProductionResultsPage() {
-  const locationOptions = PRODUCTION_LOCATIONS;
+  const [locationOptions, setLocationOptions] = useState(PRODUCTION_LOCATIONS);
 
   const [warehouseCode, setWarehouseCode] = useState(() => {
     if (typeof window === "undefined") return locationOptions[0];
@@ -47,6 +48,29 @@ export default function ProductionResultsPage() {
     if (saved && locationOptions.includes(saved)) return saved;
     return locationOptions[0];
   });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const remote = await fetchManagementLocationsByType("produksi");
+        if (cancelled) return;
+        const labels = remote.map((loc) => loc.label || loc.code).filter(Boolean);
+        if (labels.length) setLocationOptions(labels);
+      } catch (error) {
+        console.error("Gagal memuat lokasi produksi:", error.message);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!warehouseCode) return;
+    if (locationOptions.includes(warehouseCode)) return;
+    setWarehouseCode(locationOptions[0] || warehouseCode);
+  }, [locationOptions, warehouseCode]);
 
   useEffect(() => {
     if (typeof window === "undefined") return undefined;

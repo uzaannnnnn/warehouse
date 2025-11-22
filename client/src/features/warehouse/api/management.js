@@ -26,6 +26,12 @@ export async function fetchManagementLocations() {
   return data?.data || [];
 }
 
+export async function fetchManagementLocationsByType(type) {
+  const all = await fetchManagementLocations();
+  if (!type) return all;
+  return all.filter((loc) => loc.type === type);
+}
+
 export async function createManagementLocation(payload) {
   const body = {
     name: payload.name,

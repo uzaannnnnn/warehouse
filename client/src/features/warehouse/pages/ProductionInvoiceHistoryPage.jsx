@@ -1,5 +1,4 @@
 import InvoiceHistoryPage from "./InvoiceHistoryPage";
-import { PRODUCTION_LOCATIONS } from "../../../constants/warehouseLocations";
 import { WAREHOUSE_STORAGE_KEYS } from "../../../constants/warehouseStorageKeys";
 import {
   getRawLocationForProductionLocation,
@@ -11,7 +10,7 @@ export default function ProductionInvoiceHistoryPage() {
     <InvoiceHistoryPage
       segment="raw"
       pageTitle="History Invoice Produksi"
-      locationOptionsOverride={PRODUCTION_LOCATIONS}
+      locationType="produksi"
       locationStorageKeyOverride={WAREHOUSE_STORAGE_KEYS.productionLocation}
       locationToApiMapper={getRawLocationForProductionLocation}
       displayLocationMapper={getProductionLocationForRawLocation}

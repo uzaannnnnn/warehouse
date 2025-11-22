@@ -18,6 +18,7 @@ import {
   PRODUCT_LOCATIONS,
 } from "../../../constants/warehouseLocations";
 import { WAREHOUSE_STORAGE_KEYS } from "../../../constants/warehouseStorageKeys";
+import { fetchManagementLocationsByType } from "../api/management";
 
 const STORAGE_KEYS = {
   warehouseRaw: "warehouseCode_raw",
@@ -34,6 +35,7 @@ export default function InvoiceHistoryPage({
   metaSourceFilter,
   metaModeFilter,
   productionClaimedOnly = false,
+  locationType,
 }) {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -52,10 +54,11 @@ export default function InvoiceHistoryPage({
   const defaultLocationOptions = isRawSegment
     ? RAW_LOCATIONS
     : PRODUCT_LOCATIONS;
-  const locationOptions =
+  const [locationOptions, setLocationOptions] = useState(() =>
     Array.isArray(locationOptionsOverride) && locationOptionsOverride.length
       ? locationOptionsOverride
-      : defaultLocationOptions;
+      : defaultLocationOptions,
+  );
 
   const defaultStorageKey = isRawSegment
     ? STORAGE_KEYS.warehouseRaw
@@ -83,6 +86,26 @@ export default function InvoiceHistoryPage({
         : locationOptions[0],
     );
   }, [warehouseStorageKey, locationOptions]);
+
+  useEffect(() => {
+    if (locationOptionsOverride?.length || !locationType) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const remote = await fetchManagementLocationsByType(locationType);
+        if (cancelled) return;
+        const labels = remote.map((loc) => loc.label || loc.code).filter(Boolean);
+        if (labels.length) {
+          setLocationOptions(labels);
+        }
+      } catch (error) {
+        console.error("Gagal memuat lokasi dinamis:", error.message);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [locationOptionsOverride, locationType]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;

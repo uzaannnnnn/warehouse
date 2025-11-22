@@ -35,6 +35,7 @@ import {
   getPackagingLocationForProductionLocation,
 } from "../../../utils/warehouseLocationMap";
 import { WAREHOUSE_STORAGE_KEYS } from "../../../constants/warehouseStorageKeys";
+import { fetchManagementLocationsByType } from "../api/management";
 
 const STEP_LABELS = ["Bahan Baku", "Produk & Review"];
 const DUMMY_PACKAGING_OPTIONS = [
@@ -83,7 +84,7 @@ export default function ProductionPage() {
   const [bufferInvoiceNumber, setBufferInvoiceNumber] = useState("");
   const [inlineQcDraft, setInlineQcDraft] = useState({});
 
-  const locationOptions = PRODUCTION_LOCATIONS;
+  const [locationOptions, setLocationOptions] = useState(PRODUCTION_LOCATIONS);
   const [productionLocation, setProductionLocation] = useState(() => {
     if (typeof window === "undefined") {
       return locationOptions[0];
@@ -94,6 +95,31 @@ export default function ProductionPage() {
     if (saved && locationOptions.includes(saved)) return saved;
     return locationOptions[0];
   });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const remote = await fetchManagementLocationsByType("produksi");
+        if (cancelled) return;
+        const labels = remote.map((loc) => loc.label || loc.code).filter(Boolean);
+        if (labels.length) {
+          setLocationOptions(labels);
+        }
+      } catch (error) {
+        console.error("Gagal memuat lokasi produksi:", error.message);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!productionLocation) return;
+    if (locationOptions.includes(productionLocation)) return;
+    setProductionLocation(locationOptions[0] || productionLocation);
+  }, [locationOptions, productionLocation]);
 
   // Lokasi raw (dipakai di backend: invoice, buffer, produksi)
   const rawLocation = getRawLocationForProductionLocation(productionLocation);
