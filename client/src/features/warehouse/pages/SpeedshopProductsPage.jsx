@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import ProductsPage from "./ProductsPage";
-import { SPEEDSHOP_LOCATIONS } from "../../../constants/warehouseLocations";
+import { LOCATION_TYPES, SPEEDSHOP_LOCATIONS } from "../../../constants/warehouseLocations";
 import { WAREHOUSE_STORAGE_KEYS } from "../../../constants/warehouseStorageKeys";
 import { fetchManagementLocationsByType } from "../api/management";
 
@@ -11,7 +11,7 @@ export default function SpeedshopProductsPage() {
     let cancelled = false;
     (async () => {
       try {
-        const remote = await fetchManagementLocationsByType("speedshop");
+        const remote = await fetchManagementLocationsByType(LOCATION_TYPES.SPEEDSHOP);
         if (cancelled) return;
         const labels = remote.map((loc) => loc.label || loc.code).filter(Boolean);
         if (labels.length) setLocationOptions(labels);
@@ -28,6 +28,7 @@ export default function SpeedshopProductsPage() {
     <ProductsPage
       mode="finished"
       locationOptionsOverride={locationOptions}
+      locationTypeOverride={LOCATION_TYPES.SPEEDSHOP}
       locationStorageKeyOverride={WAREHOUSE_STORAGE_KEYS.speedshopLocation}
       searchStorageKeyOverride="searchTerm_speedshop"
       pageTitle="Produk SpeedShop"

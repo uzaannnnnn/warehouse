@@ -23,6 +23,7 @@ import ComboBoxWithCreate from "../components/ComboBoxWithCreate";
 import {
   SPEEDSHOP_LOCATIONS,
   PRODUCT_LOCATIONS,
+  LOCATION_TYPES,
 } from "../../../constants/warehouseLocations";
 import { WAREHOUSE_STORAGE_KEYS } from "../../../constants/warehouseStorageKeys";
 import {
@@ -34,6 +35,8 @@ import {
 } from "../api/speedshop";
 import { fetchProductsPaged, formatRupiah } from "../api/mockData";
 import { fetchManagementLocationsByType } from "../api/management";
+import { buildScopedLocationOptions, pickInitialLocation } from "../../../utils/locationScope";
+import { useAuth } from "../../../context/AuthContext";
 
 const SPEEDSHOP_LOCATION_STORAGE_KEY =
   WAREHOUSE_STORAGE_KEYS.speedshopLocation || "warehouseCode_speedshop";
@@ -88,23 +91,27 @@ const STATUS_FILTERS = [
 const PAYMENT_OPTIONS = ["Cash", "Transfer"];
 
 export default function SpeedshopPage() {
+  const { user } = useAuth();
   const [speedshopLocations, setSpeedshopLocations] = useState(SPEEDSHOP_LOCATIONS);
 
-  const resolveInitialSpeedshopLocation = useCallback(() => {
-    const fallback = speedshopLocations[0] || PRODUCT_LOCATIONS[0] || "";
-    if (typeof window === "undefined") {
-      return fallback;
-    }
-    const saved = window.localStorage.getItem(SPEEDSHOP_LOCATION_STORAGE_KEY);
-    if (saved && speedshopLocations.includes(saved)) {
-      return saved;
-    }
-    return fallback;
-  }, [speedshopLocations]);
+  const scopedLocationOptions = useMemo(
+    () => buildScopedLocationOptions(user, LOCATION_TYPES.SPEEDSHOP, speedshopLocations),
+    [user, speedshopLocations],
+  );
+
+  const resolveInitialSpeedshopLocation = useCallback(
+    () =>
+      pickInitialLocation(
+        SPEEDSHOP_LOCATION_STORAGE_KEY,
+        scopedLocationOptions,
+        user?.location,
+      ) || "",
+    [scopedLocationOptions, user?.location],
+  );
 
   const buildDefaultForm = useCallback(
     (locationOverride) => {
-      const fallback = speedshopLocations[0] || PRODUCT_LOCATIONS[0] || "";
+      const fallback = scopedLocationOptions[0] || PRODUCT_LOCATIONS[0] || "";
       return {
         orderType: "parts-only",
         orderDate: new Date().toISOString().slice(0, 10),
@@ -122,7 +129,7 @@ export default function SpeedshopPage() {
         paymentMethod: "",
       };
     },
-    [speedshopLocations],
+    [scopedLocationOptions],
   );
 
   const initialLocationValue = resolveInitialSpeedshopLocation();
@@ -176,7 +183,7 @@ export default function SpeedshopPage() {
     let cancelled = false;
     (async () => {
       try {
-        const remote = await fetchManagementLocationsByType("speedshop");
+        const remote = await fetchManagementLocationsByType(LOCATION_TYPES.SPEEDSHOP);
         if (cancelled) return;
         const labels = remote.map((loc) => loc.label || loc.code).filter(Boolean);
         if (labels.length) {
@@ -211,7 +218,7 @@ export default function SpeedshopPage() {
   useEffect(() => {
     const handleExternalLocation = (value) => {
       if (typeof value !== "string") return;
-      if (!speedshopLocations.includes(value)) return;
+      if (!scopedLocationOptions.includes(value)) return;
       setLocationFilter((prev) => (prev === value ? prev : value));
     };
 
@@ -240,15 +247,16 @@ export default function SpeedshopPage() {
         broadcastListener,
       );
     };
-  }, [speedshopLocations]);
+  }, [scopedLocationOptions]);
 
   useEffect(() => {
     if (!locationFilter) return;
-    if (speedshopLocations.includes(locationFilter)) return;
-    const next = speedshopLocations[0] || PRODUCT_LOCATIONS[0] || locationFilter;
+    if (scopedLocationOptions.includes(locationFilter)) return;
+    const next =
+      scopedLocationOptions[0] || PRODUCT_LOCATIONS[0] || locationFilter;
     setLocationFilter(next);
     setFormState((prev) => ({ ...prev, location: next }));
-  }, [speedshopLocations, locationFilter]);
+  }, [scopedLocationOptions, locationFilter]);
 
   useEffect(() => {
     if (!locationFilter) return;
@@ -416,7 +424,8 @@ export default function SpeedshopPage() {
 
   const hydrateFormFromOrder = (order) => {
     if (!order) return;
-    const fallbackLocation = speedshopLocations[0] || PRODUCT_LOCATIONS[0] || "";
+    const fallbackLocation =
+      scopedLocationOptions[0] || PRODUCT_LOCATIONS[0] || "";
     setEditingOrder(order);
     setFormState({
       orderType: order.orderType || "parts-only",
@@ -663,9 +672,9 @@ export default function SpeedshopPage() {
         <select
           value={locationFilter}
           onChange={(e) => setLocationFilter(e.target.value)}
-      className="rounded-lg border px-3 py-1 text-xs outline-none focus:ring-2 focus:ring-red-500/60"
-    >
-          {speedshopLocations.map((loc) => (
+          className="rounded-lg border px-3 py-1 text-xs outline-none focus:ring-2 focus:ring-red-500/60"
+        >
+          {scopedLocationOptions.map((loc) => (
             <option key={loc} value={loc}>
               {loc}
             </option>

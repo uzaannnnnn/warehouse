@@ -27,7 +27,7 @@ import {
 } from "../api/production";
 import RawFromInvoiceModal from "./RawFromInvoiceModal";
 import {
-  RAW_LOCATIONS,
+  LOCATION_TYPES,
   PRODUCTION_LOCATIONS,
 } from "../../../constants/warehouseLocations";
 import {
@@ -36,6 +36,8 @@ import {
 } from "../../../utils/warehouseLocationMap";
 import { WAREHOUSE_STORAGE_KEYS } from "../../../constants/warehouseStorageKeys";
 import { fetchManagementLocationsByType } from "../api/management";
+import { buildScopedLocationOptions, pickInitialLocation } from "../../../utils/locationScope";
+import { useAuth } from "../../../context/AuthContext";
 
 const STEP_LABELS = ["Bahan Baku", "Produk & Review"];
 const DUMMY_PACKAGING_OPTIONS = [
@@ -84,23 +86,25 @@ export default function ProductionPage() {
   const [bufferInvoiceNumber, setBufferInvoiceNumber] = useState("");
   const [inlineQcDraft, setInlineQcDraft] = useState({});
 
+  const { user } = useAuth();
   const [locationOptions, setLocationOptions] = useState(PRODUCTION_LOCATIONS);
-  const [productionLocation, setProductionLocation] = useState(() => {
-    if (typeof window === "undefined") {
-      return locationOptions[0];
-    }
-    const saved = window.localStorage.getItem(
-      WAREHOUSE_STORAGE_KEYS.productionLocation
-    );
-    if (saved && locationOptions.includes(saved)) return saved;
-    return locationOptions[0];
-  });
+  const scopedLocationOptions = useMemo(
+    () => buildScopedLocationOptions(user, LOCATION_TYPES.PRODUCTION, locationOptions),
+    [user, locationOptions],
+  );
+  const [productionLocation, setProductionLocation] = useState(() =>
+    pickInitialLocation(
+      WAREHOUSE_STORAGE_KEYS.productionLocation,
+      scopedLocationOptions,
+      user?.location,
+    ),
+  );
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const remote = await fetchManagementLocationsByType("produksi");
+        const remote = await fetchManagementLocationsByType(LOCATION_TYPES.PRODUCTION);
         if (cancelled) return;
         const labels = remote.map((loc) => loc.label || loc.code).filter(Boolean);
         if (labels.length) {
@@ -117,9 +121,9 @@ export default function ProductionPage() {
 
   useEffect(() => {
     if (!productionLocation) return;
-    if (locationOptions.includes(productionLocation)) return;
-    setProductionLocation(locationOptions[0] || productionLocation);
-  }, [locationOptions, productionLocation]);
+    if (scopedLocationOptions.includes(productionLocation)) return;
+    setProductionLocation(scopedLocationOptions[0] || productionLocation);
+  }, [scopedLocationOptions, productionLocation]);
 
   // Lokasi raw (dipakai di backend: invoice, buffer, produksi)
   const rawLocation = getRawLocationForProductionLocation(productionLocation);
@@ -507,7 +511,7 @@ export default function ProductionPage() {
             onChange={(e) => setProductionLocation(e.target.value)}
             className="rounded-lg border bg-white px-3 py-1 text-xs text-gray-700 hover:bg-gray-50"
           >
-            {locationOptions.map((loc) => (
+            {scopedLocationOptions.map((loc) => (
               <option key={loc} value={loc}>
                 {loc}
               </option>

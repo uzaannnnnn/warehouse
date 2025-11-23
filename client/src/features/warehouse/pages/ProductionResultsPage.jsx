@@ -14,13 +14,15 @@ import {
   approveProductionStockRequest,
   rejectProductionStockRequest,
 } from "../api/production";
-import { PRODUCTION_LOCATIONS } from "../../../constants/warehouseLocations";
+import { LOCATION_TYPES, PRODUCTION_LOCATIONS } from "../../../constants/warehouseLocations";
 import { WAREHOUSE_STORAGE_KEYS } from "../../../constants/warehouseStorageKeys";
 import {
   getRawLocationForProductionLocation,
   getProductionLocationForRawLocation,
 } from "../../../utils/warehouseLocationMap";
 import { fetchManagementLocationsByType } from "../api/management";
+import { buildScopedLocationOptions, pickInitialLocation } from "../../../utils/locationScope";
+import { useAuth } from "../../../context/AuthContext";
 
 const SEARCH_DEBOUNCE_MS = 300;
 const LOCATION_KEY = WAREHOUSE_STORAGE_KEYS.productionLocation;
@@ -40,20 +42,23 @@ function getStockRequestId(request) {
 }
 
 export default function ProductionResultsPage() {
+  const { user } = useAuth();
   const [locationOptions, setLocationOptions] = useState(PRODUCTION_LOCATIONS);
 
-  const [warehouseCode, setWarehouseCode] = useState(() => {
-    if (typeof window === "undefined") return locationOptions[0];
-    const saved = window.localStorage.getItem(LOCATION_KEY);
-    if (saved && locationOptions.includes(saved)) return saved;
-    return locationOptions[0];
-  });
+  const scopedLocationOptions = useMemo(
+    () => buildScopedLocationOptions(user, LOCATION_TYPES.PRODUCTION, locationOptions),
+    [user, locationOptions],
+  );
+
+  const [warehouseCode, setWarehouseCode] = useState(() =>
+    pickInitialLocation(LOCATION_KEY, scopedLocationOptions, user?.location),
+  );
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const remote = await fetchManagementLocationsByType("produksi");
+        const remote = await fetchManagementLocationsByType(LOCATION_TYPES.PRODUCTION);
         if (cancelled) return;
         const labels = remote.map((loc) => loc.label || loc.code).filter(Boolean);
         if (labels.length) setLocationOptions(labels);
@@ -68,15 +73,15 @@ export default function ProductionResultsPage() {
 
   useEffect(() => {
     if (!warehouseCode) return;
-    if (locationOptions.includes(warehouseCode)) return;
-    setWarehouseCode(locationOptions[0] || warehouseCode);
-  }, [locationOptions, warehouseCode]);
+    if (scopedLocationOptions.includes(warehouseCode)) return;
+    setWarehouseCode(scopedLocationOptions[0] || warehouseCode);
+  }, [scopedLocationOptions, warehouseCode]);
 
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
     const handleExternalUpdate = (value) => {
       if (typeof value !== "string") return;
-      if (!locationOptions.includes(value)) return;
+      if (!scopedLocationOptions.includes(value)) return;
       setWarehouseCode((prev) => (prev === value ? prev : value));
     };
     const customListener = (event) => handleExternalUpdate(event?.detail);
@@ -97,7 +102,7 @@ export default function ProductionResultsPage() {
       );
       window.removeEventListener("storage", storageListener);
     };
-  }, [locationOptions]);
+  }, [scopedLocationOptions]);
 
   const [loading, setLoading] = useState(true);
   const [results, setResults] = useState([]);
@@ -454,7 +459,7 @@ export default function ProductionResultsPage() {
             onChange={(e) => handleLocationSelect(e.target.value)}
             className="rounded-lg border px-3 py-1 text-xs outline-none focus:ring-2 focus:ring-red-500/60"
           >
-            {locationOptions.map((loc) => (
+            {scopedLocationOptions.map((loc) => (
               <option key={loc} value={loc}>
                 {loc}
               </option>

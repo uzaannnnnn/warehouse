@@ -20,6 +20,15 @@ export function scopeLocationsForUser(user, locationType, options) {
   return [userLoc];
 }
 
+export function buildScopedLocationOptions(user, locationType, options, extra = []) {
+  const base = Array.isArray(options) ? options.filter(Boolean) : [];
+  const extras = Array.isArray(extra) ? extra.filter(Boolean) : [];
+  const merged = new Set([...base, ...extras]);
+  const userLoc = normalize(user?.location);
+  if (userLoc) merged.add(userLoc);
+  return scopeLocationsForUser(user, locationType, Array.from(merged));
+}
+
 export function pickInitialLocation(storageKey, options, preferred) {
   const list = Array.isArray(options) ? options.filter(Boolean) : [];
   if (!list.length) return "";

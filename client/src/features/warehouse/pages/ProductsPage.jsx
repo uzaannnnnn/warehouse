@@ -41,15 +41,16 @@ import {
   getRawLocationForProductionLocation,
 } from "../../../utils/warehouseLocationMap";
 import {
-  RAW_LOCATIONS,
-  PRODUCT_LOCATIONS,
-  PACKAGING_LOCATIONS,
+  LOCATION_TYPES,
   PRODUCTION_LOCATIONS,
-  ONLINE_PACKING_LOCATIONS,
+  getDefaultLocationsByType,
 } from "../../../constants/warehouseLocations";
 import { fetchManagementLocationsByType } from "../api/management";
 import { useAuth } from "../../../context/AuthContext";
-import { pickInitialLocation, scopeLocationsForUser } from "../../../utils/locationScope";
+import {
+  buildScopedLocationOptions,
+  pickInitialLocation,
+} from "../../../utils/locationScope";
 
 const STORAGE_KEYS = {
   warehouseRaw: "warehouseCode_raw",
@@ -63,6 +64,7 @@ const STORAGE_KEYS = {
 export default function ProductsPage({
   mode = "finished",
   locationOptionsOverride,
+  locationTypeOverride,
   locationStorageKeyOverride,
   searchStorageKeyOverride,
   pageTitle = "Daftar Produk",
@@ -70,29 +72,25 @@ export default function ProductsPage({
   const isRawMode = mode === "raw";
   const isPackagingMode = mode === "packaging";
   const { user } = useAuth();
-  const isWarehouseRole = (user?.role || "").toLowerCase() === "warehouse";
 
-  const defaultLocationOptions = isRawMode
-    ? RAW_LOCATIONS
-    : isPackagingMode
-      ? PACKAGING_LOCATIONS
-      : isWarehouseRole
-        ? ONLINE_PACKING_LOCATIONS
-        : PRODUCT_LOCATIONS;
+  const locationType =
+    locationTypeOverride ||
+    (isRawMode
+      ? LOCATION_TYPES.RAW
+      : isPackagingMode
+        ? LOCATION_TYPES.PACKAGING
+        : LOCATION_TYPES.WAREHOUSE);
+
+  const defaultLocationOptions = getDefaultLocationsByType(locationType);
   const [locationOptions, setLocationOptions] = useState(() =>
     Array.isArray(locationOptionsOverride) && locationOptionsOverride.length
       ? locationOptionsOverride
       : defaultLocationOptions,
   );
-  const scopedLocationOptions = useMemo(() => {
-    const merged = new Set(locationOptions);
-    const userLoc = (user?.location || "").trim();
-    if (userLoc) merged.add(userLoc);
-    const mergedArr = Array.from(merged);
-    return isWarehouseRole
-      ? scopeLocationsForUser(user, "warehouse", mergedArr)
-      : mergedArr;
-  }, [user, locationOptions, isWarehouseRole]);
+  const scopedLocationOptions = useMemo(
+    () => buildScopedLocationOptions(user, locationType, locationOptions),
+    [user, locationType, locationOptions],
+  );
 
   const api = useMemo(() => {
     if (isRawMode) {
@@ -146,7 +144,7 @@ export default function ProductsPage({
     pickInitialLocation(
       warehouseStorageKey,
       scopedLocationOptions,
-      isWarehouseRole ? user?.location : undefined,
+      user?.location,
     ),
   );
 
@@ -225,19 +223,12 @@ export default function ProductsPage({
   }, [warehouseStorageKey, scopedLocationOptions]);
 
   useEffect(() => {
-    const type = isRawMode
-      ? "bahanbaku"
-      : isPackagingMode
-        ? "kemasan"
-        : isWarehouseRole
-          ? "warehouse"
-          : null;
-    if (!type || locationOptionsOverride?.length) return;
+    if (!locationType || locationOptionsOverride?.length) return;
 
     let cancelled = false;
     (async () => {
       try {
-        const remote = await fetchManagementLocationsByType(type);
+        const remote = await fetchManagementLocationsByType(locationType);
         if (cancelled) return;
         const labels = remote.map((loc) => loc.label || loc.code).filter(Boolean);
         if (labels.length) {
@@ -253,7 +244,7 @@ export default function ProductsPage({
     return () => {
       cancelled = true;
     };
-  }, [isRawMode, isPackagingMode, isWarehouseRole, locationOptionsOverride]);
+  }, [locationType, locationOptionsOverride]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -519,7 +510,7 @@ export default function ProductsPage({
             onChange={(e) => setWarehouseCode(e.target.value)}
             className="rounded-lg border px-3 py-1 text-xs outline-none focus:ring-2 focus:ring-red-500/60"
           >
-            {locationOptions.map((loc) => (
+            {scopedLocationOptions.map((loc) => (
               <option key={loc} value={loc}>
                 {loc}
               </option>

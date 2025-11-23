@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   FiChevronDown,
   FiChevronUp,
@@ -14,11 +14,13 @@ import EmptyState from "../../../components/common/EmptyState";
 import { WarehousePageShell } from "../../../components/templates/WarehousePageShell";
 import {
   RAW_LOCATIONS,
-  PRODUCTION_LOCATIONS,
   PRODUCT_LOCATIONS,
+  LOCATION_TYPES,
 } from "../../../constants/warehouseLocations";
 import { WAREHOUSE_STORAGE_KEYS } from "../../../constants/warehouseStorageKeys";
 import { fetchManagementLocationsByType } from "../api/management";
+import { buildScopedLocationOptions, pickInitialLocation } from "../../../utils/locationScope";
+import { useAuth } from "../../../context/AuthContext";
 
 const STORAGE_KEYS = {
   warehouseRaw: "warehouseCode_raw",
@@ -37,6 +39,7 @@ export default function InvoiceHistoryPage({
   productionClaimedOnly = false,
   locationType,
 }) {
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -50,6 +53,9 @@ export default function InvoiceHistoryPage({
   const [totalPages, setTotalPages] = useState(1);
 
   const isRawSegment = segment === "raw";
+  const effectiveLocationType =
+    locationType ||
+    (isRawSegment ? LOCATION_TYPES.RAW : LOCATION_TYPES.WAREHOUSE);
 
   const defaultLocationOptions = isRawSegment
     ? RAW_LOCATIONS
@@ -58,6 +64,10 @@ export default function InvoiceHistoryPage({
     Array.isArray(locationOptionsOverride) && locationOptionsOverride.length
       ? locationOptionsOverride
       : defaultLocationOptions,
+  );
+  const scopedLocationOptions = useMemo(
+    () => buildScopedLocationOptions(user, effectiveLocationType, locationOptions),
+    [user, effectiveLocationType, locationOptions],
   );
 
   const defaultStorageKey = isRawSegment
@@ -68,31 +78,30 @@ export default function InvoiceHistoryPage({
   const canEditLocation = isRawSegment || Boolean(locationStorageKeyOverride);
 
   // lokasi ikut ProductsPage, tapi di sini hanya dibaca (bukan diubah)
-  const [warehouseCode, setWarehouseCode] = useState(() => {
-    if (typeof window === "undefined") {
-      return locationOptions[0];
-    }
-    const saved = window.localStorage.getItem(warehouseStorageKey);
-    if (saved && locationOptions.includes(saved)) return saved;
-    return locationOptions[0];
-  });
+  const [warehouseCode, setWarehouseCode] = useState(() =>
+    pickInitialLocation(
+      warehouseStorageKey,
+      scopedLocationOptions,
+      user?.location,
+    ),
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     const saved = window.localStorage.getItem(warehouseStorageKey);
     setWarehouseCode(
-      saved && locationOptions.includes(saved)
+      saved && scopedLocationOptions.includes(saved)
         ? saved
-        : locationOptions[0],
+        : scopedLocationOptions[0],
     );
-  }, [warehouseStorageKey, locationOptions]);
+  }, [warehouseStorageKey, scopedLocationOptions]);
 
   useEffect(() => {
-    if (!locationType) return;
+    if (!effectiveLocationType || locationOptionsOverride?.length) return;
     let cancelled = false;
     (async () => {
       try {
-        const remote = await fetchManagementLocationsByType(locationType);
+        const remote = await fetchManagementLocationsByType(effectiveLocationType);
         if (cancelled) return;
         const labels = remote.map((loc) => loc.label || loc.code).filter(Boolean);
         if (labels.length) {
@@ -108,7 +117,7 @@ export default function InvoiceHistoryPage({
     return () => {
       cancelled = true;
     };
-  }, [locationOptionsOverride, locationType]);
+  }, [effectiveLocationType, locationOptionsOverride]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -132,7 +141,7 @@ export default function InvoiceHistoryPage({
     if (typeof window === "undefined" || canEditLocation) return undefined;
     const handleExternalUpdate = (value) => {
       if (typeof value !== "string") return;
-      if (!locationOptions.includes(value)) return;
+      if (!scopedLocationOptions.includes(value)) return;
       setWarehouseCode((prev) => (prev === value ? prev : value));
     };
 
@@ -176,7 +185,7 @@ export default function InvoiceHistoryPage({
         productionListener,
       );
     };
-  }, [canEditLocation, locationOptions, warehouseStorageKey]);
+  }, [canEditLocation, scopedLocationOptions, warehouseStorageKey]);
 
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -260,7 +269,7 @@ export default function InvoiceHistoryPage({
                 : "bg-gray-100 text-gray-500 cursor-not-allowed"
             }`}
           >
-            {locationOptions.map((loc) => (
+            {scopedLocationOptions.map((loc) => (
               <option key={loc} value={loc}>
                 {loc}
               </option>
