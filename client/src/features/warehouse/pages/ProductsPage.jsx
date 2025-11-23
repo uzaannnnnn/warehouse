@@ -45,8 +45,11 @@ import {
   PRODUCT_LOCATIONS,
   PACKAGING_LOCATIONS,
   PRODUCTION_LOCATIONS,
+  ONLINE_PACKING_LOCATIONS,
 } from "../../../constants/warehouseLocations";
 import { fetchManagementLocationsByType } from "../api/management";
+import { useAuth } from "../../../context/AuthContext";
+import { pickInitialLocation, scopeLocationsForUser } from "../../../utils/locationScope";
 
 const STORAGE_KEYS = {
   warehouseRaw: "warehouseCode_raw",
@@ -66,17 +69,30 @@ export default function ProductsPage({
 }) {
   const isRawMode = mode === "raw";
   const isPackagingMode = mode === "packaging";
+  const { user } = useAuth();
+  const isWarehouseRole = (user?.role || "").toLowerCase() === "warehouse";
 
   const defaultLocationOptions = isRawMode
     ? RAW_LOCATIONS
     : isPackagingMode
       ? PACKAGING_LOCATIONS
-      : PRODUCT_LOCATIONS;
+      : isWarehouseRole
+        ? ONLINE_PACKING_LOCATIONS
+        : PRODUCT_LOCATIONS;
   const [locationOptions, setLocationOptions] = useState(() =>
     Array.isArray(locationOptionsOverride) && locationOptionsOverride.length
       ? locationOptionsOverride
       : defaultLocationOptions,
   );
+  const scopedLocationOptions = useMemo(() => {
+    const merged = new Set(locationOptions);
+    const userLoc = (user?.location || "").trim();
+    if (userLoc) merged.add(userLoc);
+    const mergedArr = Array.from(merged);
+    return isWarehouseRole
+      ? scopeLocationsForUser(user, "warehouse", mergedArr)
+      : mergedArr;
+  }, [user, locationOptions, isWarehouseRole]);
 
   const api = useMemo(() => {
     if (isRawMode) {
@@ -126,14 +142,13 @@ export default function ProductsPage({
         ? STORAGE_KEYS.searchPackaging
         : STORAGE_KEYS.searchFinished);
 
-  const [warehouseCode, setWarehouseCode] = useState(() => {
-    if (typeof window === "undefined") {
-      return locationOptions[0];
-    }
-    const saved = window.localStorage.getItem(warehouseStorageKey);
-    if (saved && locationOptions.includes(saved)) return saved;
-    return locationOptions[0];
-  });
+  const [warehouseCode, setWarehouseCode] = useState(() =>
+    pickInitialLocation(
+      warehouseStorageKey,
+      scopedLocationOptions,
+      isWarehouseRole ? user?.location : undefined,
+    ),
+  );
 
   const [searchTerm, setSearchTerm] = useState(() => {
     if (typeof window === "undefined") return "";
@@ -203,18 +218,20 @@ export default function ProductsPage({
     if (typeof window === "undefined") return;
     const saved = window.localStorage.getItem(warehouseStorageKey);
     setWarehouseCode(
-      saved && locationOptions.includes(saved)
+      saved && scopedLocationOptions.includes(saved)
         ? saved
-        : locationOptions[0],
+        : scopedLocationOptions[0],
     );
-  }, [warehouseStorageKey, locationOptions]);
+  }, [warehouseStorageKey, scopedLocationOptions]);
 
   useEffect(() => {
     const type = isRawMode
       ? "bahanbaku"
       : isPackagingMode
         ? "kemasan"
-        : null;
+        : isWarehouseRole
+          ? "warehouse"
+          : null;
     if (!type || locationOptionsOverride?.length) return;
 
     let cancelled = false;
@@ -224,7 +241,10 @@ export default function ProductsPage({
         if (cancelled) return;
         const labels = remote.map((loc) => loc.label || loc.code).filter(Boolean);
         if (labels.length) {
-          setLocationOptions(labels);
+          setLocationOptions((prev) => {
+            const merged = Array.from(new Set([...(prev || []), ...labels]));
+            return merged;
+          });
         }
       } catch (error) {
         console.error("Gagal memuat lokasi dinamis:", error.message);
@@ -233,7 +253,7 @@ export default function ProductsPage({
     return () => {
       cancelled = true;
     };
-  }, [isRawMode, isPackagingMode, locationOptionsOverride]);
+  }, [isRawMode, isPackagingMode, isWarehouseRole, locationOptionsOverride]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;

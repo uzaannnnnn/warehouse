@@ -14,108 +14,85 @@ export default function Sidebar() {
   }, [collapsed]);
 
   const sections = useMemo(() => {
-    const base = [
+    const allSections = [
       {
+        key: "bahanbaku",
         title: "Bahan Baku",
         items: [
-          {
-            label: "Bahan Baku",
-            path: "/warehouse/raw-materials",
-            icon: <FiBox />,
-          },
-          {
-            label: "History Invoice",
-            path: "/warehouse/raw-invoices-history",
-            icon: <FiFileText />,
-          },
+          { label: "Bahan Baku", path: "/warehouse/raw-materials", icon: <FiBox /> },
+          { label: "History Invoice", path: "/warehouse/raw-invoices-history", icon: <FiFileText /> },
         ],
       },
       {
+        key: "kemasan",
         title: "Kemasan",
         items: [
-          {
-            label: "Kemasan",
-            path: "/warehouse/packaging",
-            icon: <FiBox />,
-          },
-          {
-            label: "History Invoice",
-            path: "/warehouse/packaging-invoices-history",
-            icon: <FiFileText />,
-          },
+          { label: "Kemasan", path: "/warehouse/packaging", icon: <FiBox /> },
+          { label: "History Invoice", path: "/warehouse/packaging-invoices-history", icon: <FiFileText /> },
         ],
       },
       {
+        key: "produksi",
         title: "Produksi",
         items: [
-          {
-            label: "Produksi",
-            path: "/warehouse/productions",
-            icon: <FiFileText />,
-          },
-          {
-            label: "Hasil Produksi",
-            path: "/warehouse/production-results",
-            icon: <FiBox />,
-          },
-          {
-            label: "History Invoice",
-            path: "/warehouse/production-invoices-history",
-            icon: <FiFileText />,
-          },
+          { label: "Produksi", path: "/warehouse/productions", icon: <FiFileText /> },
+          { label: "Hasil Produksi", path: "/warehouse/production-results", icon: <FiBox /> },
+          { label: "History Invoice", path: "/warehouse/production-invoices-history", icon: <FiFileText /> },
         ],
       },
       {
+        key: "produk",
         title: "Produk",
         items: [
-          {
-            label: "Produk",
-            path: "/warehouse/products",
-            icon: <FiBox />,
-          },
-          {
-            label: "History Invoice",
-            path: "/warehouse/invoices-history",
-            icon: <FiFileText />,
-          },
+          { label: "Produk", path: "/warehouse/products", icon: <FiBox /> },
+          { label: "History Invoice", path: "/warehouse/invoices-history", icon: <FiFileText /> },
         ],
       },
       {
+        key: "speedshop",
         title: "SpeedShop",
         items: [
-          {
-            label: "SpeedShop",
-            path: "/warehouse/speedshop",
-            icon: <FiBox />,
-          },
-          {
-            label: "Produk",
-            path: "/warehouse/speedshop-products",
-            icon: <FiBox />,
-          },
-          {
-            label: "History Invoice",
-            path: "/warehouse/speedshop-invoices-history",
-            icon: <FiFileText />,
-          },
+          { label: "SpeedShop", path: "/warehouse/speedshop", icon: <FiBox /> },
+          { label: "Produk", path: "/warehouse/speedshop-products", icon: <FiBox /> },
+          { label: "History Invoice", path: "/warehouse/speedshop-invoices-history", icon: <FiFileText /> },
         ],
       },
     ];
 
-    if (user?.role === "manager" || user?.role === "admin") {
-      base.push({
-        title: "Manager",
-        items: [
-          {
-            label: "Akun",
-            path: "/warehouse/accounts",
-            icon: <FiUsers />,
-          },
-        ],
-      });
+    const isManager = user?.role === "manager" || user?.role === "admin";
+    if (isManager) {
+      return [
+        ...allSections,
+        {
+          key: "manager",
+          title: "Manager",
+          items: [{ label: "Akun", path: "/warehouse/accounts", icon: <FiUsers /> }],
+        },
+      ];
     }
 
-    return base;
+    const role = (user?.role || "").toLowerCase();
+    if (role === "warehouse") {
+      return allSections
+        .filter((s) => s.key === "produk")
+        .map((s) => ({
+          ...s,
+          title: "Online Packing",
+          items: s.items.map((item) =>
+            item.path === "/warehouse/products"
+              ? { ...item, label: "Produk Online" }
+              : item.path === "/warehouse/invoices-history"
+                ? { ...item, label: "History Invoice Online" }
+                : item,
+          ),
+        }));
+    }
+    if (role === "bahanbaku") return allSections.filter((s) => s.key === "bahanbaku");
+    if (role === "kemasan") return allSections.filter((s) => s.key === "kemasan");
+    if (role === "produksi") return allSections.filter((s) => s.key === "produksi");
+    if (role === "speedshop") return allSections.filter((s) => s.key === "speedshop");
+
+    return allSections;
   }, [user?.role]);
 
   return (
