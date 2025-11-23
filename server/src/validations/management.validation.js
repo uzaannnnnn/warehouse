@@ -1,7 +1,7 @@
 const { z } = require("zod");
 const { LOCATION_TYPES } = require("../constants/locations");
 
-const allowedRoles = ["manager", "bahanbaku", "kemasan", "produksi", "speedshop"];
+const allowedRoles = ["manager", "bahanbaku", "kemasan", "produksi", "speedshop", "warehouse"];
 const allowedStatuses = ["active", "suspended"];
 
 const createUserSchema = z

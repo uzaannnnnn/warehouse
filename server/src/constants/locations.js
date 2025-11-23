@@ -3,6 +3,7 @@ const LOCATION_TYPES = {
   KEMASAN: "kemasan",
   PRODUKSI: "produksi",
   SPEEDSHOP: "speedshop",
+  WAREHOUSE: "warehouse", // Online Packing
 };
 
 const LOCATION_TYPE_LABELS = {
@@ -10,6 +11,7 @@ const LOCATION_TYPE_LABELS = {
   [LOCATION_TYPES.KEMASAN]: "KEMASAN",
   [LOCATION_TYPES.PRODUKSI]: "PRODUKSI",
   [LOCATION_TYPES.SPEEDSHOP]: "SPEEDSHOP",
+  [LOCATION_TYPES.WAREHOUSE]: "ONLINE PACKING",
 };
 
 const DEFAULT_LOCATIONS = [
@@ -25,6 +27,9 @@ const DEFAULT_LOCATIONS = [
   { number: 10, type: LOCATION_TYPES.KEMASAN, name: "KTP" },
   { number: 11, type: LOCATION_TYPES.KEMASAN, name: "DPK" },
   { number: 12, type: LOCATION_TYPES.KEMASAN, name: "BGR" },
+  { number: 13, type: LOCATION_TYPES.WAREHOUSE, name: "KTP" },
+  { number: 14, type: LOCATION_TYPES.WAREHOUSE, name: "DPK" },
+  { number: 15, type: LOCATION_TYPES.WAREHOUSE, name: "BGR" },
 ];
 
 function formatLocationLabel({ number, type, name }) {

@@ -23,11 +23,13 @@ import {
   fetchManagementUsers,
   updateManagementUser,
 } from "../api/management";
+import { ONLINE_PACKING_LOCATIONS } from "../../../constants/warehouseLocations";
 
 const ROLE_OPTIONS = [
   { value: "bahanbaku", label: "Bahan Baku" },
   { value: "kemasan", label: "Kemasan" },
   { value: "produksi", label: "Produksi" },
+  { value: "warehouse", label: "Warehouse" },
   { value: "speedshop", label: "Speedshop" },
 ];
 
@@ -39,6 +41,7 @@ const ROLE_LOCATION_TYPE_MAP = {
   kemasan: "kemasan",
   produksi: "produksi",
   speedshop: "speedshop",
+  warehouse: "warehouse",
 };
 
 const LOCATION_TYPE_LABELS = {
@@ -46,6 +49,7 @@ const LOCATION_TYPE_LABELS = {
   kemasan: "Kemasan",
   produksi: "Produksi",
   speedshop: "Speedshop",
+  warehouse: "Online Packing",
 };
 
 function formatDate(value) {
@@ -97,6 +101,24 @@ export default function AccountManagementPage() {
 
   const locationOptionsForRole = useCallback(
     (roleValue) => {
+      if (roleValue === "warehouse") {
+        const baseOnlinePacking = ONLINE_PACKING_LOCATIONS.map((label) => ({
+          code: label,
+          label,
+          type: "warehouse",
+        }));
+        const warehouseLocations = locations.filter(
+          (loc) => loc.type === "warehouse" || loc.type === "online-packing",
+        );
+        const merged = [...warehouseLocations];
+        baseOnlinePacking.forEach((item) => {
+          const exists = merged.some(
+            (loc) => (loc.code || loc.label || "").toUpperCase() === item.code.toUpperCase(),
+          );
+          if (!exists) merged.push(item);
+        });
+        return merged;
+      }
       const expectedType = ROLE_LOCATION_TYPE_MAP[roleValue];
       if (!expectedType) return locations;
       return locations.filter((loc) => loc.type === expectedType);
@@ -190,6 +212,10 @@ export default function AccountManagementPage() {
     setUserForm(defaultUserForm);
     setEditOriginalRole(null);
     setEditOriginalLocation(null);
+    setLocationForm((prev) => ({
+      ...prev,
+      type: ROLE_LOCATION_TYPE_MAP[DEFAULT_ROLE] || "bahanbaku",
+    }));
     setUserModalOpen(true);
   };
 
@@ -210,6 +236,10 @@ export default function AccountManagementPage() {
     });
     setEditOriginalRole(target.role || null);
     setEditOriginalLocation(target.location || null);
+    setLocationForm((prev) => ({
+      ...prev,
+      type: ROLE_LOCATION_TYPE_MAP[target.role] || prev.type,
+    }));
     setUserModalOpen(true);
   };
 
@@ -284,10 +314,12 @@ export default function AccountManagementPage() {
       toast.error("Nama lokasi wajib diisi");
       return;
     }
+    const effectiveType = ROLE_LOCATION_TYPE_MAP[userForm.role] || locationForm.type;
     try {
       setSavingLocation(true);
       const created = await createManagementLocation({
         ...locationForm,
+        type: effectiveType,
         name: locationForm.name.trim().toUpperCase(),
       });
       toast.success(`Lokasi ${created?.label || created?.code} ditambahkan`);
@@ -488,10 +520,8 @@ export default function AccountManagementPage() {
                       </label>
                       <select
                         value={locationForm.type}
-                        onChange={(e) =>
-                          setLocationForm((prev) => ({ ...prev, type: e.target.value }))
-                        }
-                        className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-red-200 focus:ring-2 focus:ring-red-100"
+                        disabled
+                        className="mt-1 w-full rounded-lg border border-slate-200 bg-gray-100 px-3 py-2 text-sm text-slate-800 outline-none"
                       >
                         {Object.entries(LOCATION_TYPE_LABELS).map(([value, label]) => (
                           <option key={value} value={value}>

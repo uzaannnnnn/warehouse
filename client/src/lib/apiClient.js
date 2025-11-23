@@ -37,9 +37,21 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
+let isAuthRedirecting = false;
+
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
+    const status = error?.response?.status;
+    if (
+      typeof window !== "undefined" &&
+      (status === 401 || status === 403) &&
+      !isAuthRedirecting
+    ) {
+      isAuthRedirecting = true;
+      window.localStorage.removeItem(AUTH_STORAGE_KEY);
+      window.location.href = "/login";
+    }
     const message =
       error?.response?.data?.message ??
       error?.message ??

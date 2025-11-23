@@ -10,10 +10,13 @@ const {
 const logger = require("../config/logger");
 
 async function ensureBaseLocations() {
-  const total = await Location.estimatedDocumentCount();
-  if (total > 0) return;
+  const existing = await Location.find({}).lean();
+  const existingCodes = new Set(existing.map((loc) => loc.code));
+  const existingNumbers = new Set(existing.map((loc) => loc.number));
 
-  const payloads = DEFAULT_LOCATIONS.map((loc) => {
+  const payloads = DEFAULT_LOCATIONS.filter(
+    (loc) => !existingCodes.has(formatLocationLabel(loc)) && !existingNumbers.has(loc.number),
+  ).map((loc) => {
     const label = formatLocationLabel(loc);
     return {
       ...loc,
@@ -23,7 +26,9 @@ async function ensureBaseLocations() {
     };
   });
 
-  await Location.insertMany(payloads, { ordered: false });
+  if (payloads.length) {
+    await Location.insertMany(payloads, { ordered: false }).catch(() => {});
+  }
 }
 
 async function listLocations(req, res) {

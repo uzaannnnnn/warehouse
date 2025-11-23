@@ -88,7 +88,7 @@ export default function InvoiceHistoryPage({
   }, [warehouseStorageKey, locationOptions]);
 
   useEffect(() => {
-    if (locationOptionsOverride?.length || !locationType) return;
+    if (!locationType) return;
     let cancelled = false;
     (async () => {
       try {
@@ -96,7 +96,10 @@ export default function InvoiceHistoryPage({
         if (cancelled) return;
         const labels = remote.map((loc) => loc.label || loc.code).filter(Boolean);
         if (labels.length) {
-          setLocationOptions(labels);
+          setLocationOptions((prev) => {
+            const merged = Array.from(new Set([...(prev || []), ...labels]));
+            return merged;
+          });
         }
       } catch (error) {
         console.error("Gagal memuat lokasi dinamis:", error.message);
